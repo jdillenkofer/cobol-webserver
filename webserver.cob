@@ -21,7 +21,12 @@
            05 SIN-ADDR PIC 9(8) USAGE BINARY.
            05 FILLER PIC X(8).
        01 WS-CADDRLEN PIC 9(4) VALUE 16.
-       01 WS-BUFFER PIC X(100). 
+       01 WS-STATUS PIC 9(3).
+       01 WS-STATUSTEXT PIC X(32).
+       01 WS-FILEFD PIC 9(4).
+       01 WS-FILENAME PIC X(32).
+       01 WS-BUFFER PIC X(4096).
+       01 WS-BUFFER-LEN PIC 9(8).
        PROCEDURE DIVISION.
        MAIN-PROCEDURE.
            PERFORM SETUP-IGNORE-SIGPIPE.
@@ -95,46 +100,85 @@
                GOBACK
            END-IF.
 
-           MOVE "HTTP/1.1 200 OK" TO WS-BUFFER.
-           CALL "write" 
-           USING BY VALUE WS-CLIENT-SOCKFD,
-           BY REFERENCE WS-BUFFER,
-           BY VALUE 15
-           RETURNING WS-RESULT
-           END-CALL.
-           
+           MOVE SPACES TO WS-FILENAME.
+           STRING "index.html" X"00" DELIMITED BY SIZE
+           INTO WS-FILENAME
+           END-STRING.
+
+           MOVE 200 TO WS-STATUS.
+           PERFORM COMPUTE-STATUSTEXT-FROM-STATUS.
+           PERFORM SEND-FILE-AS-HTTP-RESPONSE.
+
+       COMPUTE-STATUSTEXT-FROM-STATUS.
+      * TODO: Compute WS-STATUSTEXT from WS-STATUS
+           MOVE "OK" TO WS-STATUSTEXT.
+       SEND-FILE-AS-HTTP-RESPONSE.
+           MOVE SPACES TO WS-BUFFER.
+           STRING "HTTP/1.1 " WS-STATUS " " DELIMITED BY SIZE
+           WS-STATUSTEXT DELIMITED BY SPACE
+           INTO WS-BUFFER
+           END-STRING.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
            MOVE X"0D0A" TO WS-BUFFER.
-           CALL "write" 
-           USING BY VALUE WS-CLIENT-SOCKFD,
-           BY REFERENCE WS-BUFFER,
-           BY VALUE 2
-           RETURNING WS-RESULT
-           END-CALL.
- 
-           MOVE "Content-Length: 12" TO WS-BUFFER.
-           CALL "write" 
-           USING BY VALUE WS-CLIENT-SOCKFD,
-           BY REFERENCE WS-BUFFER,
-           BY VALUE 18
-           RETURNING WS-RESULT
-           END-CALL.
- 
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           MOVE "Content-Type: text/html" TO WS-BUFFER.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           MOVE X"0D0A" TO WS-BUFFER.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+      * TODO: Calculate Content-Length with ftell
+           MOVE "Content-Length: 273" TO WS-BUFFER.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+           
            MOVE X"0D0A0D0A" TO WS-BUFFER.
-           CALL "write" 
-           USING BY VALUE WS-CLIENT-SOCKFD,
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           CALL "open" 
+           USING BY REFERENCE WS-FILENAME,
+           BY VALUE 0
+           RETURNING WS-FILEFD
+           END-CALL.
+
+           CALL "read"
+           USING BY VALUE WS-FILEFD,
            BY REFERENCE WS-BUFFER,
-           BY VALUE 4
+           BY VALUE LENGTH OF WS-BUFFER 
            RETURNING WS-RESULT
            END-CALL.
 
-           MOVE "Hello world!" TO WS-BUFFER.
-           CALL "write" 
-           USING BY VALUE WS-CLIENT-SOCKFD,
-           BY REFERENCE WS-BUFFER,
-           BY VALUE 12
+           CALL "close"
+           USING BY VALUE WS-FILEFD
            RETURNING WS-RESULT
            END-CALL.
 
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           PERFORM CLOSE-CLIENT-SOCKET.
+
+       COMPUTE-BUFFER-LEN.
+           MOVE ZERO TO  WS-BUFFER-LEN.
+           INSPECT FUNCTION REVERSE (WS-BUFFER)
+           TALLYING WS-BUFFER-LEN FOR LEADING SPACES.
+           COMPUTE WS-BUFFER-LEN = LENGTH OF WS-BUFFER - WS-BUFFER-LEN
+           END-COMPUTE.
+       WRITE-TO-CLIENT-SOCKET.
+           PERFORM COMPUTE-BUFFER-LEN.
+           CALL "write" 
+           USING BY VALUE WS-CLIENT-SOCKFD,
+           BY REFERENCE WS-BUFFER,
+           BY VALUE WS-BUFFER-LEN
+           RETURNING WS-RESULT
+           END-CALL.
+           IF WS-RESULT NOT = WS-BUFFER-LEN
+           THEN
+               DISPLAY "write call failed: ", WS-RESULT
+               END-DISPLAY
+               GOBACK
+           END-IF.
+       CLOSE-CLIENT-SOCKET.
       * SHUT_RD
            CALL "shutdown"
            USING BY VALUE WS-CLIENT-SOCKFD,
