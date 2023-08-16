@@ -25,6 +25,8 @@
        01 WS-STATUSTEXT PIC X(32).
        01 WS-FILEFD PIC 9(4).
        01 WS-FILENAME PIC X(32).
+       01 WS-FILESIZE PIC 9(8).
+       01 WS-FILESIZE2 PIC ZZZZZZZ9.
        01 WS-BUFFER PIC X(4096).
        01 WS-BUFFER-LEN PIC 9(8).
        PROCEDURE DIVISION.
@@ -112,6 +114,21 @@
        COMPUTE-STATUSTEXT-FROM-STATUS.
       * TODO: Compute WS-STATUSTEXT from WS-STATUS
            MOVE "OK" TO WS-STATUSTEXT.
+       COMPUTE-FILE-SIZE.
+      * fseek to SEEK_END
+           CALL "lseek"
+           USING BY VALUE WS-FILEFD,
+           BY VALUE 0,
+           BY VALUE 2
+           RETURNING WS-FILESIZE
+           END-CALL.
+
+           CALL "lseek"
+           USING BY VALUE WS-FILEFD,
+           BY VALUE 0,
+           BY VALUE 0
+           END-CALL.
+
        SEND-FILE-AS-HTTP-RESPONSE.
            MOVE SPACES TO WS-BUFFER.
            STRING "HTTP/1.1 " WS-STATUS " " DELIMITED BY SIZE
@@ -129,32 +146,41 @@
            MOVE X"0D0A" TO WS-BUFFER.
            PERFORM WRITE-TO-CLIENT-SOCKET.
 
-      * TODO: Calculate Content-Length with ftell
-           MOVE "Content-Length: 273" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-           
-           MOVE X"0D0A0D0A" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-
            CALL "open" 
            USING BY REFERENCE WS-FILENAME,
            BY VALUE 0
            RETURNING WS-FILEFD
            END-CALL.
 
-           CALL "read"
-           USING BY VALUE WS-FILEFD,
-           BY REFERENCE WS-BUFFER,
-           BY VALUE LENGTH OF WS-BUFFER 
-           RETURNING WS-RESULT
-           END-CALL.
+           PERFORM COMPUTE-FILE-SIZE.
+
+           MOVE WS-FILESIZE TO WS-FILESIZE2.
+           MOVE SPACES TO WS-BUFFER.
+           STRING "Content-Length: " 
+           FUNCTION TRIM(WS-FILESIZE2, LEADING) DELIMITED BY SIZE
+           INTO WS-BUFFER
+           END-STRING.
+
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+           
+           MOVE X"0D0A0D0A" TO WS-BUFFER.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+      *    CALL "read"
+      *    USING BY VALUE WS-FILEFD,
+      *     BY REFERENCE WS-BUFFER,
+      *     BY VALUE LENGTH OF WS-BUFFER 
+      *     RETURNING WS-RESULT
+      *     END-CALL.
+
+
+      *    PERFORM WRITE-TO-CLIENT-SOCKET.
+           PERFORM SEND-FILE-TO-CLIENT-SOCKET.
 
            CALL "close"
            USING BY VALUE WS-FILEFD
            RETURNING WS-RESULT
            END-CALL.
-
-           PERFORM WRITE-TO-CLIENT-SOCKET.
 
            PERFORM CLOSE-CLIENT-SOCKET.
 
@@ -164,6 +190,20 @@
            TALLYING WS-BUFFER-LEN FOR LEADING SPACES.
            COMPUTE WS-BUFFER-LEN = LENGTH OF WS-BUFFER - WS-BUFFER-LEN
            END-COMPUTE.
+       SEND-FILE-TO-CLIENT-SOCKET.
+           CALL "sendfile"
+           USING BY VALUE WS-CLIENT-SOCKFD,
+           BY VALUE WS-FILEFD,
+           BY REFERENCE NULL,
+           BY VALUE WS-FILESIZE
+           RETURNING WS-RESULT
+           END-CALL.
+           IF WS-RESULT NOT = WS-FILESIZE
+           THEN
+               DISPLAY "sendfile call failed: ", WS-RESULT
+               END-DISPLAY
+               GOBACK
+           END-IF.
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
            CALL "write" 
