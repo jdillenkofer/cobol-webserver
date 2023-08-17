@@ -198,12 +198,13 @@
            BY VALUE WS-FILESIZE
            RETURNING WS-RESULT
            END-CALL.
-           IF WS-RESULT NOT = WS-FILESIZE
+           IF WS-RESULT = -1
            THEN
                DISPLAY "sendfile call failed: ", WS-RESULT
                END-DISPLAY
                GOBACK
            END-IF.
+      * TODO: Handle case if sendfile does not send the entire file
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
            CALL "write" 
@@ -212,12 +213,13 @@
            BY VALUE WS-BUFFER-LEN
            RETURNING WS-RESULT
            END-CALL.
-           IF WS-RESULT NOT = WS-BUFFER-LEN
+           IF WS-RESULT = -1
            THEN
                DISPLAY "write call failed: ", WS-RESULT
                END-DISPLAY
                GOBACK
            END-IF.
+      * TODO: Handle case if write call does not send the entire buffer
        CLOSE-CLIENT-SOCKET.
       * SHUT_RD
            CALL "shutdown"
