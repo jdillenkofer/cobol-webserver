@@ -35,10 +35,9 @@
        MAIN-PROCEDURE.
            PERFORM SETUP-IGNORE-SIGPIPE.
            PERFORM SETUP-SOCKET.
-       HANDLE-CLIENT-LOOP.
-           PERFORM HANDLE-CLIENT.
-           GO TO HANDLE-CLIENT-LOOP.
-      * EXIT PROGRAM.
+           PERFORM FOREVER
+               PERFORM HANDLE-CLIENT
+           END-PERFORM.
        SETUP-IGNORE-SIGPIPE.
       * IGNORE SIGPIPE signal
            CALL "sigaction"
@@ -328,7 +327,9 @@
            END-COMPUTE.
        SEND-FILE-TO-CLIENT-SOCKET.
            MOVE ZERO TO WS-SENDFILE-OFFSET.
-           PERFORM SEND-FILE-TO-CLIENT-SOCKET-LOOP.
+           MOVE ZERO TO WS-RESULT.
+           PERFORM SEND-FILE-TO-CLIENT-SOCKET-LOOP 
+           UNTIL WS-FILESIZE = 0 OR WS-RESULT = -1.
        SEND-FILE-TO-CLIENT-SOCKET-LOOP.
            CALL "sendfile64"
            USING BY VALUE WS-CLIENT-SOCKFD,
@@ -341,22 +342,15 @@
            THEN
                DISPLAY "sendfile call failed: ", WS-RESULT
                END-DISPLAY
-           END-IF.
-           IF WS-RESULT > 0 AND WS-RESULT < WS-FILESIZE
-           THEN
-               DISPLAY
-               "sendfile call returned before writing all bytes."
-               END-DISPLAY
+           ELSE
                COMPUTE WS-FILESIZE = WS-FILESIZE - WS-RESULT
                END-COMPUTE
-               IF WS-FILESIZE > 0
-               THEN
-                   GO TO SEND-FILE-TO-CLIENT-SOCKET-LOOP
-               END-IF
            END-IF.
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
-           PERFORM WRITE-TO-CLIENT-SOCKET-LOOP.
+           MOVE ZERO TO WS-RESULT.
+           PERFORM WRITE-TO-CLIENT-SOCKET-LOOP 
+           UNTIL WS-BUFFER-LEN = 0 OR WS-RESULT = -1.
        WRITE-TO-CLIENT-SOCKET-LOOP.
            CALL "write" 
            USING BY VALUE WS-CLIENT-SOCKFD,
@@ -369,16 +363,13 @@
                DISPLAY "write call failed: ", WS-RESULT
                END-DISPLAY
            END-IF.
-           IF WS-RESULT > 0 AND WS-RESULT < WS-BUFFER-LEN
+           IF WS-RESULT > 0
            THEN
-               DISPLAY "write call returned before writing all bytes."
-               END-DISPLAY
                MOVE SPACES TO WS-BUFFER2
                MOVE WS-BUFFER(WS-RESULT:) TO WS-BUFFER2
                MOVE WS-BUFFER2 TO WS-BUFFER
                COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-RESULT
                END-COMPUTE
-               GO TO WRITE-TO-CLIENT-SOCKET-LOOP
            END-IF.
        CLOSE-CLIENT-SOCKET.
       * SHUT_WR
