@@ -5,7 +5,7 @@
        WORKING-STORAGE SECTION.
        01 WS-SOCKFD PIC 9(4).
        01 WS-CLIENT-SOCKFD PIC 9(4).
-       01 WS-RESULT PIC 9(8).
+       01 WS-RESULT PIC S9(32).
        01 WS-SIGACTION.
            05 SIG-IGN PIC 9(4) BINARY VALUE 256.
        01 WS-SOCKADDR-IN.
@@ -21,12 +21,13 @@
            05 SIN-ADDR PIC 9(8) USAGE BINARY.
            05 FILLER PIC X(8).
        01 WS-CADDRLEN PIC 9(4) VALUE 16.
+       01 WS-SENDFILE-OFFSET PIC 9(16) BINARY.
        01 WS-STATUS PIC 9(3).
        01 WS-STATUSTEXT PIC X(32).
        01 WS-FILEFD PIC 9(4).
        01 WS-FILENAME PIC X(32).
-       01 WS-FILESIZE PIC 9(16).
-       01 WS-FILESIZE2 PIC Z(15)9.
+       01 WS-FILESIZE PIC 9(32).
+       01 WS-FILESIZE2 PIC Z(31)9.
        01 WS-BUFFER PIC X(4096).
        01 WS-BUFFER2 PIC X(4096).
        01 WS-BUFFER-LEN PIC 9(8).
@@ -102,6 +103,18 @@
                END-DISPLAY
                GOBACK
            END-IF.
+
+      * Read incoming http request
+           MOVE ZERO TO WS-BUFFER.
+           CALL "read"
+           USING BY VALUE WS-CLIENT-SOCKFD,
+           BY REFERENCE WS-BUFFER,
+           BY VALUE 4096
+           RETURNING WS-RESULT
+           END-CALL.
+
+           DISPLAY WS-BUFFER(1:WS-RESULT)
+           END-DISPLAY.
 
            MOVE SPACES TO WS-FILENAME.
            STRING "index.html" X"00" DELIMITED BY SIZE
@@ -314,11 +327,13 @@
            COMPUTE WS-BUFFER-LEN = LENGTH OF WS-BUFFER - WS-BUFFER-LEN
            END-COMPUTE.
        SEND-FILE-TO-CLIENT-SOCKET.
-      * TODO: Handle case if sendfile does not send the entire file
+           MOVE ZERO TO WS-SENDFILE-OFFSET.
+           PERFORM SEND-FILE-TO-CLIENT-SOCKET-LOOP.
+       SEND-FILE-TO-CLIENT-SOCKET-LOOP.
            CALL "sendfile64"
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY VALUE WS-FILEFD,
-           BY REFERENCE NULL,
+           BY REFERENCE WS-SENDFILE-OFFSET,
            BY VALUE WS-FILESIZE
            RETURNING WS-RESULT
            END-CALL.
@@ -326,7 +341,18 @@
            THEN
                DISPLAY "sendfile call failed: ", WS-RESULT
                END-DISPLAY
-               GOBACK
+           END-IF.
+           IF WS-RESULT > 0 AND WS-RESULT < WS-FILESIZE
+           THEN
+               DISPLAY
+               "sendfile call returned before writing all bytes."
+               END-DISPLAY
+               COMPUTE WS-FILESIZE = WS-FILESIZE - WS-RESULT
+               END-COMPUTE
+               IF WS-FILESIZE > 0
+               THEN
+                   GO TO SEND-FILE-TO-CLIENT-SOCKET-LOOP
+               END-IF
            END-IF.
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
@@ -342,12 +368,12 @@
            THEN
                DISPLAY "write call failed: ", WS-RESULT
                END-DISPLAY
-               GOBACK
            END-IF.
-           IF WS-RESULT < WS-BUFFER-LEN
+           IF WS-RESULT > 0 AND WS-RESULT < WS-BUFFER-LEN
            THEN
                DISPLAY "write call returned before writing all bytes."
                END-DISPLAY
+               MOVE SPACES TO WS-BUFFER2
                MOVE WS-BUFFER(WS-RESULT:) TO WS-BUFFER2
                MOVE WS-BUFFER2 TO WS-BUFFER
                COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-RESULT
@@ -355,10 +381,10 @@
                GO TO WRITE-TO-CLIENT-SOCKET-LOOP
            END-IF.
        CLOSE-CLIENT-SOCKET.
-      * SHUT_RD
+      * SHUT_WR
            CALL "shutdown"
            USING BY VALUE WS-CLIENT-SOCKFD,
-           BY VALUE 2
+           BY VALUE 1
            END-CALL.
 
            CALL "close"
