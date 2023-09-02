@@ -28,6 +28,7 @@
        01 WS-FILESIZE PIC 9(16).
        01 WS-FILESIZE2 PIC Z(15)9.
        01 WS-BUFFER PIC X(4096).
+       01 WS-BUFFER2 PIC X(4096).
        01 WS-BUFFER-LEN PIC 9(8).
        PROCEDURE DIVISION.
        MAIN-PROCEDURE.
@@ -297,15 +298,6 @@
            MOVE X"0D0A0D0A" TO WS-BUFFER.
            PERFORM WRITE-TO-CLIENT-SOCKET.
 
-      *    CALL "read"
-      *    USING BY VALUE WS-FILEFD,
-      *     BY REFERENCE WS-BUFFER,
-      *     BY VALUE LENGTH OF WS-BUFFER 
-      *     RETURNING WS-RESULT
-      *     END-CALL.
-
-
-      *    PERFORM WRITE-TO-CLIENT-SOCKET.
            PERFORM SEND-FILE-TO-CLIENT-SOCKET.
 
            CALL "close"
@@ -322,6 +314,7 @@
            COMPUTE WS-BUFFER-LEN = LENGTH OF WS-BUFFER - WS-BUFFER-LEN
            END-COMPUTE.
        SEND-FILE-TO-CLIENT-SOCKET.
+      * TODO: Handle case if sendfile does not send the entire file
            CALL "sendfile64"
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY VALUE WS-FILEFD,
@@ -335,9 +328,10 @@
                END-DISPLAY
                GOBACK
            END-IF.
-      * TODO: Handle case if sendfile does not send the entire file
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
+           PERFORM WRITE-TO-CLIENT-SOCKET-LOOP.
+       WRITE-TO-CLIENT-SOCKET-LOOP.
            CALL "write" 
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-BUFFER,
@@ -350,7 +344,16 @@
                END-DISPLAY
                GOBACK
            END-IF.
-      * TODO: Handle case if write call does not send the entire buffer
+           IF WS-RESULT < WS-BUFFER-LEN
+           THEN
+               DISPLAY "write call returned before writing all bytes."
+               END-DISPLAY
+               MOVE WS-BUFFER(WS-RESULT:) TO WS-BUFFER2
+               MOVE WS-BUFFER2 TO WS-BUFFER
+               COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-RESULT
+               END-COMPUTE
+               GO TO WRITE-TO-CLIENT-SOCKET-LOOP
+           END-IF.
        CLOSE-CLIENT-SOCKET.
       * SHUT_RD
            CALL "shutdown"
