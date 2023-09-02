@@ -24,12 +24,16 @@
        01 WS-SENDFILE-OFFSET PIC 9(16) BINARY.
        01 WS-STATUS PIC 9(3).
        01 WS-STATUSTEXT PIC X(32).
+       01 WS-HTTP-REQUEST.
+          05 HTTP-METHOD PIC X(8).
+          05 PATH   PIC X(2083).
+          05 PROTOCOL PIC X(16).
        01 WS-FILEFD PIC 9(4).
        01 WS-FILENAME PIC X(32).
        01 WS-FILESIZE PIC 9(32).
        01 WS-FILESIZE2 PIC Z(31)9.
-       01 WS-BUFFER PIC X(4096).
-       01 WS-BUFFER2 PIC X(4096).
+       01 WS-BUFFER PIC X(8192).
+       01 WS-BUFFER2 PIC X(8192).
        01 WS-BUFFER-LEN PIC 9(8).
        PROCEDURE DIVISION.
        MAIN-PROCEDURE.
@@ -108,17 +112,56 @@
            CALL "read"
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-BUFFER,
-           BY VALUE 4096
+           BY VALUE 8192
            RETURNING WS-RESULT
            END-CALL.
 
-           DISPLAY WS-BUFFER(1:WS-RESULT)
-           END-DISPLAY.
+           UNSTRING WS-BUFFER(1:WS-RESULT)
+           DELIMITED BY X"0D0A"
+           INTO WS-BUFFER
+           END-UNSTRING.
 
-           MOVE SPACES TO WS-FILENAME.
-           STRING "index.html" X"00" DELIMITED BY SIZE
+           UNSTRING WS-BUFFER
+           DELIMITED BY ALL SPACES
+           INTO HTTP-METHOD OF WS-HTTP-REQUEST,
+           PATH OF WS-HTTP-REQUEST,
+           PROTOCOL OF WS-HTTP-REQUEST,
+           WS-BUFFER
+           END-UNSTRING.
+
+           IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
+           THEN
+               MOVE 405 TO WS-STATUS
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+               EXIT PARAGRAPH
+           END-IF.
+
+           IF  PROTOCOL OF WS-HTTP-REQUEST NOT = "HTTP/1.0"
+           AND PROTOCOL OF WS-HTTP-REQUEST NOT = "HTTP/1.1"
+           THEN
+               MOVE 505 TO WS-STATUS
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+               EXIT PARAGRAPH
+           END-IF.
+
+      * FIXME: This is vulnerable to path traversal
+           IF PATH OF WS-HTTP-REQUEST = "/"
+           THEN
+               MOVE "index.html" TO WS-FILENAME
+           ELSE
+               MOVE SPACES TO WS-FILENAME
+               UNSTRING PATH OF WS-HTTP-REQUEST
+               DELIMITED BY "/"
+               INTO WS-BUFFER, WS-FILENAME
+               END-UNSTRING
+           END-IF.
+
+           STRING WS-FILENAME DELIMITED BY SPACE
+           X"00" DELIMITED BY SIZE
            INTO WS-FILENAME
-           END-STRING.
+           END-STRING
 
            MOVE 200 TO WS-STATUS.
            PERFORM COMPUTE-STATUSTEXT-FROM-STATUS.
@@ -272,6 +315,26 @@
            BY VALUE 0,
            BY VALUE 0
            END-CALL.
+
+       SEND-STATUSCODE-AS-HTTP-RESPONSE.
+           MOVE SPACES TO WS-BUFFER.
+           STRING "HTTP/1.1 " WS-STATUS " " DELIMITED BY SIZE
+           WS-STATUSTEXT DELIMITED BY SIZE
+           INTO WS-BUFFER
+           END-STRING.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           MOVE X"0D0A" TO WS-BUFFER.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           MOVE "Content-Length: 0" TO WS-BUFFER.
+
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           MOVE X"0D0A0D0A" TO WS-BUFFER.
+           PERFORM WRITE-TO-CLIENT-SOCKET.
+
+           PERFORM CLOSE-CLIENT-SOCKET.
 
        SEND-FILE-AS-HTTP-RESPONSE.
            MOVE SPACES TO WS-BUFFER.
