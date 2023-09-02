@@ -112,8 +112,139 @@
            PERFORM SEND-FILE-AS-HTTP-RESPONSE.
 
        COMPUTE-STATUSTEXT-FROM-STATUS.
-      * TODO: Compute WS-STATUSTEXT from WS-STATUS
-           MOVE "OK" TO WS-STATUSTEXT.
+      * Compute WS-STATUSTEXT from WS-STATUS
+           EVALUATE WS-STATUS
+               WHEN 100
+                   MOVE "Continue" TO WS-STATUSTEXT
+               WHEN 101
+                   MOVE "Switching Protocols" TO WS-STATUSTEXT
+               WHEN 102
+                   MOVE "Processing" TO WS-STATUSTEXT
+               WHEN 103
+                   MOVE "Early Hints" TO WS-STATUSTEXT
+               WHEN 200
+                   MOVE "OK" TO WS-STATUSTEXT
+               WHEN 201
+                   MOVE "Created" TO WS-STATUSTEXT
+               WHEN 202
+                   MOVE "Accepted" TO WS-STATUSTEXT
+               WHEN 203
+                   MOVE "Non-Authoritative Information" TO WS-STATUSTEXT
+               WHEN 204
+                   MOVE "No Content" TO WS-STATUSTEXT
+               WHEN 205
+                   MOVE "Reset Content" TO WS-STATUSTEXT
+               WHEN 206
+                   MOVE "Partial Content" TO WS-STATUSTEXT
+               WHEN 207
+                   MOVE "Multi-Status" TO WS-STATUSTEXT
+               WHEN 208
+                   MOVE "Already Reported" TO WS-STATUSTEXT
+               WHEN 226
+                   MOVE "IM Used" TO WS-STATUSTEXT
+               WHEN 300
+                   MOVE "Multiple Choices" TO WS-STATUSTEXT
+               WHEN 301
+                   MOVE "Moved Permanently" TO WS-STATUSTEXT
+               WHEN 302
+                   MOVE "Found" TO WS-STATUSTEXT
+               WHEN 303
+                   MOVE "See Other" TO WS-STATUSTEXT
+               WHEN 304
+                   MOVE "Not Modified" TO WS-STATUSTEXT
+               WHEN 305
+                   MOVE "Use Proxy" TO WS-STATUSTEXT
+               WHEN 306
+                   MOVE "Switch Proxy" TO WS-STATUSTEXT
+               WHEN 307
+                   MOVE "Temporary Redirect" TO WS-STATUSTEXT
+               WHEN 308
+                   MOVE "Permanent Redirect" TO WS-STATUSTEXT
+               WHEN 400
+                   MOVE "Bad Request" TO WS-STATUSTEXT
+               WHEN 401
+                   MOVE "Unauthorized" TO WS-STATUSTEXT
+               WHEN 402
+                   MOVE "Payment Required" TO WS-STATUSTEXT
+               WHEN 403
+                   MOVE "Forbidden" TO WS-STATUSTEXT
+               WHEN 404
+                   MOVE "Not Found" TO WS-STATUSTEXT
+               WHEN 405
+                   MOVE "Method Not Allowed" TO WS-STATUSTEXT
+               WHEN 406
+                   MOVE "Not Acceptable" TO WS-STATUSTEXT
+               WHEN 407
+                   MOVE "Proxy Authentication Required" TO WS-STATUSTEXT
+               WHEN 408
+                   MOVE "Request Timeout" TO WS-STATUSTEXT
+               WHEN 409
+                   MOVE "Conflict" TO WS-STATUSTEXT
+               WHEN 410
+                   MOVE "Gone" TO WS-STATUSTEXT
+               WHEN 411
+                   MOVE "Length Required" TO WS-STATUSTEXT
+               WHEN 412
+                   MOVE "Precondition Failed" TO WS-STATUSTEXT
+               WHEN 413
+                   MOVE "Payload Too Large" TO WS-STATUSTEXT
+               WHEN 414
+                   MOVE "URI Too Long" TO WS-STATUSTEXT
+               WHEN 415
+                   MOVE "Unsupported Media Type" TO WS-STATUSTEXT
+               WHEN 416
+                   MOVE "Range Not Satisfiable" TO WS-STATUSTEXT
+               WHEN 417
+                   MOVE "Expectation Failed" TO WS-STATUSTEXT
+               WHEN 418
+                   MOVE "I'm a teapot" TO WS-STATUSTEXT
+               WHEN 421
+                   MOVE "Misdirected Request" TO WS-STATUSTEXT
+               WHEN 422
+                   MOVE "Unprocessable Entity" TO WS-STATUSTEXT
+               WHEN 423
+                   MOVE "Locked" TO WS-STATUSTEXT
+               WHEN 424
+                   MOVE "Failed Dependency" TO WS-STATUSTEXT
+               WHEN 425
+                   MOVE "Too Early" TO WS-STATUSTEXT
+               WHEN 426
+                   MOVE "Upgrade Required" TO WS-STATUSTEXT
+               WHEN 428
+                   MOVE "Precondition Required" TO WS-STATUSTEXT
+               WHEN 429
+                   MOVE "Too Many Requests" TO WS-STATUSTEXT
+               WHEN 431
+                   MOVE "Request Header Fields Too Large" 
+                   TO WS-STATUSTEXT
+               WHEN 451
+                   MOVE "Unavailable For Legal Reasons" TO WS-STATUSTEXT
+               WHEN 500
+                   MOVE "Internal Server Error" TO WS-STATUSTEXT
+               WHEN 501
+                   MOVE "Not Implemented" TO WS-STATUSTEXT
+               WHEN 502
+                   MOVE "Bad Gateway" TO WS-STATUSTEXT
+               WHEN 503
+                   MOVE "Service Unavailable" TO WS-STATUSTEXT
+               WHEN 504
+                   MOVE "Gateway Timeout" TO WS-STATUSTEXT
+               WHEN 505
+                   MOVE "HTTP Version Not Supported" TO WS-STATUSTEXT
+               WHEN 506
+                   MOVE "Variant Also Negotiates" TO WS-STATUSTEXT
+               WHEN 507
+                   MOVE "Insufficient Storage" TO WS-STATUSTEXT
+               WHEN 508
+                   MOVE "Loop Detected" TO WS-STATUSTEXT
+               WHEN 510
+                   MOVE "Not Extended" TO WS-STATUSTEXT
+               WHEN 511
+                   MOVE "Network Authentication Required"
+                   TO WS-STATUSTEXT
+               WHEN OTHER
+                   MOVE "Unknown" TO WS-STATUSTEXT
+           END-EVALUATE.
        COMPUTE-FILE-SIZE.
       * fseek to SEEK_END
            CALL "lseek"
@@ -132,7 +263,7 @@
        SEND-FILE-AS-HTTP-RESPONSE.
            MOVE SPACES TO WS-BUFFER.
            STRING "HTTP/1.1 " WS-STATUS " " DELIMITED BY SIZE
-           WS-STATUSTEXT DELIMITED BY SPACE
+           WS-STATUSTEXT DELIMITED BY SIZE
            INTO WS-BUFFER
            END-STRING.
            PERFORM WRITE-TO-CLIENT-SOCKET.
