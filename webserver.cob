@@ -37,12 +37,14 @@
        01 WS-BUFFER-LEN PIC 9(8).
        01 WS-BUFFER-SIZE PIC 9(8) VALUE 8192.
        PROCEDURE DIVISION.
+
        MAIN-PROCEDURE.
            PERFORM SETUP-IGNORE-SIGPIPE.
            PERFORM SETUP-SOCKET.
            PERFORM FOREVER
                PERFORM HANDLE-CLIENT
            END-PERFORM.
+
        SETUP-IGNORE-SIGPIPE.
       * IGNORE SIGPIPE signal
            CALL "sigaction"
@@ -57,6 +59,7 @@
                END-DISPLAY
                GOBACK
            END-IF.
+
        SETUP-SOCKET.
       * AF_INET, SOCK_STREAM, default prot
            CALL "socket" 
@@ -93,6 +96,7 @@
            END-IF.
            DISPLAY "Listening on 0.0.0.0:8080"
            END-DISPLAY.
+
        HANDLE-CLIENT.
            MOVE 16 TO WS-CADDRLEN.
            CALL "accept" 
@@ -309,6 +313,7 @@
                WHEN OTHER
                    MOVE "Unknown" TO WS-STATUSTEXT
            END-EVALUATE.
+
        COMPUTE-FILE-SIZE.
       * fseek to SEEK_END
            CALL "lseek"
@@ -398,11 +403,13 @@
            TALLYING WS-BUFFER-LEN FOR LEADING SPACES.
            COMPUTE WS-BUFFER-LEN = LENGTH OF WS-BUFFER - WS-BUFFER-LEN
            END-COMPUTE.
+
        SEND-FILE-TO-CLIENT-SOCKET.
            MOVE ZERO TO WS-SENDFILE-OFFSET.
            MOVE ZERO TO WS-RESULT.
            PERFORM SEND-FILE-TO-CLIENT-SOCKET-LOOP 
            UNTIL WS-FILESIZE = 0 OR WS-RESULT = -1.
+
        SEND-FILE-TO-CLIENT-SOCKET-LOOP.
            CALL "sendfile64"
            USING BY VALUE WS-CLIENT-SOCKFD,
@@ -419,11 +426,13 @@
                COMPUTE WS-FILESIZE = WS-FILESIZE - WS-RESULT
                END-COMPUTE
            END-IF.
+
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
            MOVE ZERO TO WS-RESULT.
            PERFORM WRITE-TO-CLIENT-SOCKET-LOOP 
            UNTIL WS-BUFFER-LEN = 0 OR WS-RESULT = -1.
+
        WRITE-TO-CLIENT-SOCKET-LOOP.
            CALL "write" 
            USING BY VALUE WS-CLIENT-SOCKFD,
@@ -444,6 +453,7 @@
                COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-RESULT
                END-COMPUTE
            END-IF.
+
        CLOSE-CLIENT-SOCKET.
       * SHUT_WR
            CALL "shutdown"
@@ -455,4 +465,5 @@
            USING BY VALUE WS-CLIENT-SOCKFD
            RETURNING WS-RESULT
            END-CALL.
+
        END PROGRAM webserver.
