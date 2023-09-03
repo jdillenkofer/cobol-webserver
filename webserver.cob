@@ -1,5 +1,5 @@
        IDENTIFICATION DIVISION.
-       PROGRAM-ID. webserver.
+       PROGRAM-ID. cobol-webserver.
        DATA DIVISION.
        FILE SECTION.
        WORKING-STORAGE SECTION.
@@ -22,16 +22,25 @@
            05 FILLER PIC X(8).
        01 WS-CADDRLEN PIC 9(4) VALUE 16.
        01 WS-SENDFILE-OFFSET PIC 9(16) BINARY.
-       01 WS-STATUS PIC 9(3).
-       01 WS-STATUSTEXT PIC X(32).
+       01 WS-HTTP-LINE PIC X(4096).
+       01 WS-HTTP-LINE-LEN PIC 9(8).
+       01 WS-HTTP-LINE-SIZE PIC 9(8) VALUE 4096.
        01 WS-HTTP-REQUEST.
-          05 HTTP-METHOD PIC X(8).
-          05 PATH   PIC X(2083).
-          05 PROTOCOL PIC X(16).
+           05 HTTP-METHOD PIC X(8).
+           05 PATH   PIC X(2083).
+           05 PROTOCOL PIC X(16).
+           05 HEADERS-LEN PIC 9(8).
+           05 HEADERS-SIZE PIC 9(8) VALUE 512.
+           05 HEADERS OCCURS 512 TIMES.
+               06 HEADER-KEY PIC X(256).
+               06 HEADER-VALUE PIC X(256).
+       01 WS-HTTP-RESPONSE.
+           05 HTTP-STATUS PIC 9(3).
+           05 HTTP-STATUSTEXT PIC X(32).
        01 WS-FILEFD PIC 9(4).
        01 WS-FILENAME PIC X(32).
        01 WS-FILESIZE PIC 9(32).
-       01 WS-FILESIZE2 PIC Z(31)9.
+       01 WS-FILESIZE-WITHOUT-LEADING-ZEROS PIC Z(31)9.
        01 WS-BUFFER PIC X(8192).
        01 WS-BUFFER2 PIC X(8192).
        01 WS-BUFFER-LEN PIC 9(8).
@@ -118,31 +127,52 @@
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-BUFFER,
            BY VALUE WS-BUFFER-SIZE
-           RETURNING WS-RESULT
+           RETURNING WS-BUFFER-LEN
            END-CALL.
 
-           MOVE SPACES TO WS-BUFFER2.
-           UNSTRING WS-BUFFER(1:WS-RESULT)
-           DELIMITED BY X"0D0A"
-           INTO WS-BUFFER2 COUNT IN WS-RESULT
-           END-UNSTRING.
+           PERFORM READ-HTTP-LINE.
 
-           UNSTRING WS-BUFFER2
+           UNSTRING WS-HTTP-LINE
            DELIMITED BY ALL SPACES
            INTO HTTP-METHOD OF WS-HTTP-REQUEST,
            PATH OF WS-HTTP-REQUEST,
            PROTOCOL OF WS-HTTP-REQUEST
            END-UNSTRING.
 
-           COMPUTE WS-RESULT = WS-RESULT + 1
-           END-COMPUTE.
-           MOVE WS-BUFFER(WS-RESULT:) TO WS-BUFFER2.
-           MOVE WS-BUFFER2 TO WS-BUFFER.
-      * WS-BUFFER now contains headers + maybe part of the body
+           MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
+           PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
+                   OR HEADERS-LEN = HEADERS-SIZE
+               PERFORM READ-HTTP-LINE
+               COMPUTE
+               HEADERS-LEN = HEADERS-LEN + 1
+               END-COMPUTE
+
+               UNSTRING WS-HTTP-LINE
+               DELIMITED BY ": "
+               INTO HEADER-KEY OF HEADERS(HEADERS-LEN),
+               HEADER-VALUE OF HEADERS(HEADERS-LEN)
+               END-UNSTRING
+           END-PERFORM.
+
+           IF WS-BUFFER(1:2) NOT = X"0D0A" AND HEADERS-LEN =
+                   HEADERS-SIZE
+           THEN
+      * We read all headers we could read, but there are still more...
+      * Return status code 413 "Payload Too Large"
+               MOVE 413 TO HTTP-STATUS OF WS-HTTP-RESPONSE
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+               EXIT PARAGRAPH
+           END-IF.
+
+      * Consumes the last \r\n
+           PERFORM READ-HTTP-LINE.
+
+      * TODO: Consume body
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
            THEN
-               MOVE 405 TO WS-STATUS
+               MOVE 405 TO HTTP-STATUS OF WS-HTTP-RESPONSE
                PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
                EXIT PARAGRAPH
@@ -152,7 +182,7 @@
            AND PROTOCOL OF WS-HTTP-REQUEST NOT = "HTTP/1.1"
            THEN
                MOVE "HTTP/1.1" TO PROTOCOL OF WS-HTTP-REQUEST
-               MOVE 505 TO WS-STATUS
+               MOVE 505 TO HTTP-STATUS OF WS-HTTP-RESPONSE
                PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
                EXIT PARAGRAPH
@@ -175,143 +205,222 @@
            INTO WS-FILENAME
            END-STRING
 
-           MOVE 200 TO WS-STATUS.
+           MOVE 200 TO HTTP-STATUS OF WS-HTTP-RESPONSE.
            PERFORM COMPUTE-STATUSTEXT-FROM-STATUS.
            PERFORM SEND-FILE-AS-HTTP-RESPONSE.
 
+       READ-HTTP-LINE.
+           MOVE SPACES TO WS-HTTP-LINE.
+
+           UNSTRING WS-BUFFER(1:WS-BUFFER-LEN)
+           DELIMITED BY X"0D0A"
+           INTO WS-HTTP-LINE
+           COUNT IN WS-HTTP-LINE-LEN
+           END-UNSTRING.
+
+           COMPUTE WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 3
+           END-COMPUTE.
+           COMPUTE
+           WS-BUFFER-LEN = WS-BUFFER-LEN - WS-HTTP-LINE-LEN
+           END-COMPUTE.
+           MOVE WS-BUFFER(WS-HTTP-LINE-LEN:) TO WS-BUFFER2.
+           MOVE WS-BUFFER2 TO WS-BUFFER.
+
        COMPUTE-STATUSTEXT-FROM-STATUS.
       * Compute WS-STATUSTEXT from WS-STATUS
-           EVALUATE WS-STATUS
+           EVALUATE HTTP-STATUS OF WS-HTTP-RESPONSE
                WHEN 100
-                   MOVE "Continue" TO WS-STATUSTEXT
+                   MOVE "Continue"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 101
-                   MOVE "Switching Protocols" TO WS-STATUSTEXT
+                   MOVE "Switching Protocols"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 102
-                   MOVE "Processing" TO WS-STATUSTEXT
+                   MOVE "Processing"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 103
-                   MOVE "Early Hints" TO WS-STATUSTEXT
+                   MOVE "Early Hints"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 200
-                   MOVE "OK" TO WS-STATUSTEXT
+                   MOVE "OK"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 201
-                   MOVE "Created" TO WS-STATUSTEXT
+                   MOVE "Created"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 202
-                   MOVE "Accepted" TO WS-STATUSTEXT
+                   MOVE "Accepted"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 203
-                   MOVE "Non-Authoritative Information" TO WS-STATUSTEXT
+                   MOVE "Non-Authoritative Information"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 204
-                   MOVE "No Content" TO WS-STATUSTEXT
+                   MOVE "No Content"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 205
-                   MOVE "Reset Content" TO WS-STATUSTEXT
+                   MOVE "Reset Content"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 206
-                   MOVE "Partial Content" TO WS-STATUSTEXT
+                   MOVE "Partial Content"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 207
-                   MOVE "Multi-Status" TO WS-STATUSTEXT
+                   MOVE "Multi-Status"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 208
-                   MOVE "Already Reported" TO WS-STATUSTEXT
+                   MOVE "Already Reported"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 226
-                   MOVE "IM Used" TO WS-STATUSTEXT
+                   MOVE "IM Used"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 300
-                   MOVE "Multiple Choices" TO WS-STATUSTEXT
+                   MOVE "Multiple Choices"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 301
-                   MOVE "Moved Permanently" TO WS-STATUSTEXT
+                   MOVE "Moved Permanently"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 302
-                   MOVE "Found" TO WS-STATUSTEXT
+                   MOVE "Found"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 303
-                   MOVE "See Other" TO WS-STATUSTEXT
+                   MOVE "See Other"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 304
-                   MOVE "Not Modified" TO WS-STATUSTEXT
+                   MOVE "Not Modified"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 305
-                   MOVE "Use Proxy" TO WS-STATUSTEXT
+                   MOVE "Use Proxy"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 306
-                   MOVE "Switch Proxy" TO WS-STATUSTEXT
+                   MOVE "Switch Proxy"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 307
-                   MOVE "Temporary Redirect" TO WS-STATUSTEXT
+                   MOVE "Temporary Redirect"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 308
-                   MOVE "Permanent Redirect" TO WS-STATUSTEXT
+                   MOVE "Permanent Redirect"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 400
-                   MOVE "Bad Request" TO WS-STATUSTEXT
+                   MOVE "Bad Request"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 401
-                   MOVE "Unauthorized" TO WS-STATUSTEXT
+                   MOVE "Unauthorized"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 402
-                   MOVE "Payment Required" TO WS-STATUSTEXT
+                   MOVE "Payment Required"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 403
-                   MOVE "Forbidden" TO WS-STATUSTEXT
+                   MOVE "Forbidden"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 404
-                   MOVE "Not Found" TO WS-STATUSTEXT
+                   MOVE "Not Found"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 405
-                   MOVE "Method Not Allowed" TO WS-STATUSTEXT
+                   MOVE "Method Not Allowed"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 406
-                   MOVE "Not Acceptable" TO WS-STATUSTEXT
+                   MOVE "Not Acceptable"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 407
-                   MOVE "Proxy Authentication Required" TO WS-STATUSTEXT
+                   MOVE "Proxy Authentication Required"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 408
-                   MOVE "Request Timeout" TO WS-STATUSTEXT
+                   MOVE "Request Timeout"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 409
-                   MOVE "Conflict" TO WS-STATUSTEXT
+                   MOVE "Conflict"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 410
-                   MOVE "Gone" TO WS-STATUSTEXT
+                   MOVE "Gone"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 411
-                   MOVE "Length Required" TO WS-STATUSTEXT
+                   MOVE "Length Required"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 412
-                   MOVE "Precondition Failed" TO WS-STATUSTEXT
+                   MOVE "Precondition Failed"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 413
-                   MOVE "Payload Too Large" TO WS-STATUSTEXT
+                   MOVE "Payload Too Large"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 414
-                   MOVE "URI Too Long" TO WS-STATUSTEXT
+                   MOVE "URI Too Long"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 415
-                   MOVE "Unsupported Media Type" TO WS-STATUSTEXT
+                   MOVE "Unsupported Media Type"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 416
-                   MOVE "Range Not Satisfiable" TO WS-STATUSTEXT
+                   MOVE "Range Not Satisfiable"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 417
-                   MOVE "Expectation Failed" TO WS-STATUSTEXT
+                   MOVE "Expectation Failed"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 418
-                   MOVE "I'm a teapot" TO WS-STATUSTEXT
+                   MOVE "I'm a teapot"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 421
-                   MOVE "Misdirected Request" TO WS-STATUSTEXT
+                   MOVE "Misdirected Request"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 422
-                   MOVE "Unprocessable Entity" TO WS-STATUSTEXT
+                   MOVE "Unprocessable Entity"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 423
-                   MOVE "Locked" TO WS-STATUSTEXT
+                   MOVE "Locked"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 424
-                   MOVE "Failed Dependency" TO WS-STATUSTEXT
+                   MOVE "Failed Dependency"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 425
-                   MOVE "Too Early" TO WS-STATUSTEXT
+                   MOVE "Too Early"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 426
-                   MOVE "Upgrade Required" TO WS-STATUSTEXT
+                   MOVE "Upgrade Required"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 428
-                   MOVE "Precondition Required" TO WS-STATUSTEXT
+                   MOVE "Precondition Required"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 429
-                   MOVE "Too Many Requests" TO WS-STATUSTEXT
+                   MOVE "Too Many Requests"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 431
-                   MOVE "Request Header Fields Too Large" 
-                   TO WS-STATUSTEXT
+                   MOVE "Request Header Fields Too Large"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 451
-                   MOVE "Unavailable For Legal Reasons" TO WS-STATUSTEXT
+                   MOVE "Unavailable For Legal Reasons"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 500
-                   MOVE "Internal Server Error" TO WS-STATUSTEXT
+                   MOVE "Internal Server Error"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 501
-                   MOVE "Not Implemented" TO WS-STATUSTEXT
+                   MOVE "Not Implemented"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 502
-                   MOVE "Bad Gateway" TO WS-STATUSTEXT
+                   MOVE "Bad Gateway"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 503
-                   MOVE "Service Unavailable" TO WS-STATUSTEXT
+                   MOVE "Service Unavailable"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 504
-                   MOVE "Gateway Timeout" TO WS-STATUSTEXT
+                   MOVE "Gateway Timeout"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 505
-                   MOVE "HTTP Version Not Supported" TO WS-STATUSTEXT
+                   MOVE "HTTP Version Not Supported"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 506
-                   MOVE "Variant Also Negotiates" TO WS-STATUSTEXT
+                   MOVE "Variant Also Negotiates"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 507
-                   MOVE "Insufficient Storage" TO WS-STATUSTEXT
+                   MOVE "Insufficient Storage"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 508
-                   MOVE "Loop Detected" TO WS-STATUSTEXT
+                   MOVE "Loop Detected"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 510
-                   MOVE "Not Extended" TO WS-STATUSTEXT
+                   MOVE "Not Extended"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN 511
                    MOVE "Network Authentication Required"
-                   TO WS-STATUSTEXT
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
                WHEN OTHER
-                   MOVE "Unknown" TO WS-STATUSTEXT
+                   MOVE "Unknown"
+                   TO HTTP-STATUSTEXT OF WS-HTTP-RESPONSE
            END-EVALUATE.
 
        COMPUTE-FILE-SIZE.
@@ -332,8 +441,8 @@
        SEND-STATUSCODE-AS-HTTP-RESPONSE.
            MOVE SPACES TO WS-BUFFER.
            STRING PROTOCOL OF WS-HTTP-REQUEST " "
-           WS-STATUS " " DELIMITED BY SIZE
-           WS-STATUSTEXT DELIMITED BY SIZE
+           HTTP-STATUS OF WS-HTTP-RESPONSE " " DELIMITED BY SIZE
+           HTTP-STATUSTEXT OF WS-HTTP-RESPONSE DELIMITED BY SIZE
            INTO WS-BUFFER
            END-STRING.
            PERFORM WRITE-TO-CLIENT-SOCKET.
@@ -353,8 +462,8 @@
        SEND-FILE-AS-HTTP-RESPONSE.
            MOVE SPACES TO WS-BUFFER.
            STRING PROTOCOL OF WS-HTTP-REQUEST " "
-           WS-STATUS " " DELIMITED BY SIZE
-           WS-STATUSTEXT DELIMITED BY SIZE
+           HTTP-STATUS OF WS-HTTP-RESPONSE " " DELIMITED BY SIZE
+           HTTP-STATUSTEXT OF WS-HTTP-RESPONSE DELIMITED BY SIZE
            INTO WS-BUFFER
            END-STRING.
            PERFORM WRITE-TO-CLIENT-SOCKET.
@@ -376,10 +485,11 @@
 
            PERFORM COMPUTE-FILE-SIZE.
 
-           MOVE WS-FILESIZE TO WS-FILESIZE2.
+           MOVE WS-FILESIZE TO WS-FILESIZE-WITHOUT-LEADING-ZEROS.
            MOVE SPACES TO WS-BUFFER.
            STRING "Content-Length: " 
-           FUNCTION TRIM(WS-FILESIZE2, LEADING) DELIMITED BY SIZE
+           FUNCTION TRIM(WS-FILESIZE-WITHOUT-LEADING-ZEROS LEADING)
+           DELIMITED BY SIZE
            INTO WS-BUFFER
            END-STRING.
 
@@ -466,4 +576,4 @@
            RETURNING WS-RESULT
            END-CALL.
 
-       END PROGRAM webserver.
+       END PROGRAM cobol-webserver.
