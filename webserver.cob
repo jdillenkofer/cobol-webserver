@@ -35,6 +35,7 @@
        01 WS-BUFFER PIC X(8192).
        01 WS-BUFFER2 PIC X(8192).
        01 WS-BUFFER-LEN PIC 9(8).
+       01 WS-BUFFER-SIZE PIC 9(8) VALUE 8192.
        PROCEDURE DIVISION.
        MAIN-PROCEDURE.
            PERFORM SETUP-IGNORE-SIGPIPE.
@@ -50,7 +51,7 @@
            BY REFERENCE NULL
            RETURNING WS-RESULT
            END-CALL
-           IF WS-RESULT IS NOT ZERO
+           IF WS-RESULT NOT = ZERO
            THEN
                DISPLAY "sigaction call failed: ", WS-RESULT
                END-DISPLAY
@@ -74,7 +75,7 @@
            BY VALUE WS-ADDRLEN 
            RETURNING WS-RESULT
            END-CALL.
-           IF WS-RESULT IS NOT ZERO
+           IF WS-RESULT NOT = ZERO
            THEN
                DISPLAY "bind call failed: ", WS-RESULT
                END-DISPLAY
@@ -84,7 +85,7 @@
            USING BY VALUE WS-SOCKFD, 50
            RETURNING WS-RESULT
            END-CALL.
-           IF WS-RESULT IS NOT ZERO
+           IF WS-RESULT NOT = ZERO
            THEN
                DISPLAY "listen call failed: ", WS-RESULT
                END-DISPLAY
@@ -108,26 +109,32 @@
            END-IF.
 
       * Read incoming http request
-           MOVE ZERO TO WS-BUFFER.
+           MOVE SPACES TO WS-BUFFER.
            CALL "read"
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-BUFFER,
-           BY VALUE 8192
+           BY VALUE WS-BUFFER-SIZE
            RETURNING WS-RESULT
            END-CALL.
 
+           MOVE SPACES TO WS-BUFFER2.
            UNSTRING WS-BUFFER(1:WS-RESULT)
            DELIMITED BY X"0D0A"
-           INTO WS-BUFFER
+           INTO WS-BUFFER2 COUNT IN WS-RESULT
            END-UNSTRING.
 
-           UNSTRING WS-BUFFER
+           UNSTRING WS-BUFFER2
            DELIMITED BY ALL SPACES
            INTO HTTP-METHOD OF WS-HTTP-REQUEST,
            PATH OF WS-HTTP-REQUEST,
-           PROTOCOL OF WS-HTTP-REQUEST,
-           WS-BUFFER
+           PROTOCOL OF WS-HTTP-REQUEST
            END-UNSTRING.
+
+           COMPUTE WS-RESULT = WS-RESULT + 1
+           END-COMPUTE.
+           MOVE WS-BUFFER(WS-RESULT:) TO WS-BUFFER2.
+           MOVE WS-BUFFER2 TO WS-BUFFER.
+      * WS-BUFFER now contains headers + maybe part of the body
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
            THEN
