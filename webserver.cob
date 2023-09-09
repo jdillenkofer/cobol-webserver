@@ -183,21 +183,7 @@
                PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
            END-IF.
 
-           MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
-           PERFORM READ-HTTP-LINE
-           PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
-                   OR HEADERS-LEN = HEADERS-SIZE
-               COMPUTE
-               HEADERS-LEN = HEADERS-LEN + 1
-               END-COMPUTE
-
-               UNSTRING WS-HTTP-LINE
-               DELIMITED BY ": "
-               INTO HEADER-KEY OF HEADERS(HEADERS-LEN),
-               HEADER-VALUE OF HEADERS(HEADERS-LEN)
-               END-UNSTRING
-               PERFORM READ-HTTP-LINE
-           END-PERFORM.
+           PERFORM PROCESS-HTTP-HEADERS.
 
            IF WS-BUFFER(1:2) NOT = X"0D0A"
               AND HEADERS-LEN = HEADERS-SIZE
@@ -274,6 +260,24 @@
            END-CALL.
 
            GOBACK.
+
+       PROCESS-HTTP-HEADERS.
+           MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
+
+           PERFORM READ-HTTP-LINE
+           PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
+                   OR HEADERS-LEN = HEADERS-SIZE
+               COMPUTE
+               HEADERS-LEN = HEADERS-LEN + 1
+               END-COMPUTE
+
+               UNSTRING WS-HTTP-LINE
+               DELIMITED BY ": "
+               INTO HEADER-KEY OF HEADERS(HEADERS-LEN),
+               HEADER-VALUE OF HEADERS(HEADERS-LEN)
+               END-UNSTRING
+               PERFORM READ-HTTP-LINE
+           END-PERFORM.
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
            COMPUTE 
