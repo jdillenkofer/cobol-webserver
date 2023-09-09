@@ -172,6 +172,8 @@
            PROTOCOL OF WS-HTTP-REQUEST
            END-UNSTRING.
 
+      * TODO: We need to ensure that the last \r\n\r\n is inside
+      * WS-BUFFER with another read
            MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
            PERFORM READ-HTTP-LINE
            PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
@@ -273,13 +275,17 @@
            END-UNSTRING.
  
            COMPUTE
-           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 3
+           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 2
            END-COMPUTE.
 
            COMPUTE
-           WS-BUFFER-LEN = WS-BUFFER-LEN - WS-HTTP-LINE-LEN + 1
+           WS-BUFFER-LEN = WS-BUFFER-LEN - WS-HTTP-LINE-LEN
            END-COMPUTE.
 
+      * Substring syntax starts with index 1...
+           COMPUTE
+           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 1
+           END-COMPUTE.
            MOVE WS-BUFFER(WS-HTTP-LINE-LEN:) TO WS-BUFFER2.
            COMPUTE
            WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN - 1
