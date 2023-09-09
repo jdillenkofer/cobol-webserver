@@ -6,6 +6,7 @@
        01 WS-SOCKFD PIC 9(4).
        01 WS-CLIENT-SOCKFD PIC 9(4).
        01 WS-RESULT PIC S9(32).
+       01 WS-RESULT2 PIC S9(32).
        01 WS-SIGACTION.
            05 SIG-IGN PIC 9(4) BINARY VALUE 256.
        01 WS-SOCKADDR-IN.
@@ -42,7 +43,7 @@
        01 WS-FILESIZE PIC 9(32).
        01 WS-FILESIZE-WITHOUT-LEADING-ZEROS PIC Z(31)9.
        01 WS-BUFFER PIC X(8192).
-       01 WS-BUFFER2 PIC X(8192).
+       01 WS-TEMP-BUFFER PIC X(8192).
        01 WS-BUFFER-LEN PIC 9(8).
        01 WS-BUFFER-SIZE PIC 9(8) VALUE 8192.
        PROCEDURE DIVISION.
@@ -172,8 +173,16 @@
            PROTOCOL OF WS-HTTP-REQUEST
            END-UNSTRING.
 
-      * TODO: We need to ensure that the last \r\n\r\n is inside
+      * We need to ensure that the last \r\n\r\n is inside
       * WS-BUFFER with another read
+           MOVE ZERO TO WS-RESULT.
+           INSPECT WS-BUFFER(1:WS-BUFFER-LEN)
+           TALLYING WS-RESULT FOR ALL X"0D0A0D0A".
+           IF WS-RESULT = 0 AND WS-BUFFER-LEN NOT = WS-BUFFER-SIZE
+           THEN
+               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+           END-IF.
+
            MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
            PERFORM READ-HTTP-LINE
            PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
@@ -203,7 +212,8 @@
       * Consumes the last \r\n
            PERFORM READ-HTTP-LINE.
 
-      * TODO: Consume body
+      * TODO: Consume body by checking Content-Length header
+      *    PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
            THEN
@@ -265,6 +275,30 @@
 
            GOBACK.
 
+       READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
+           COMPUTE 
+           WS-RESULT2 = WS-BUFFER-SIZE - WS-BUFFER-LEN
+           END-COMPUTE.
+
+           MOVE SPACES TO WS-TEMP-BUFFER
+           CALL "read"
+           USING BY VALUE WS-CLIENT-SOCKFD,
+           BY REFERENCE WS-TEMP-BUFFER,
+           BY VALUE WS-RESULT2
+           RETURNING WS-RESULT
+           END-CALL.
+
+           COMPUTE
+           WS-RESULT2 = WS-BUFFER-LEN + 1
+           END-COMPUTE.
+
+           MOVE WS-TEMP-BUFFER(1:WS-RESULT)
+           TO WS-BUFFER(WS-RESULT2:).
+
+           COMPUTE
+           WS-BUFFER-LEN = WS-BUFFER-LEN + WS-RESULT
+           END-COMPUTE.
+
        READ-HTTP-LINE.
            MOVE SPACES TO WS-HTTP-LINE.
 
@@ -284,13 +318,10 @@
 
       * Substring syntax starts with index 1...
            COMPUTE
-           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 1
+           WS-RESULT2 = WS-HTTP-LINE-LEN + 1
            END-COMPUTE.
-           MOVE WS-BUFFER(WS-HTTP-LINE-LEN:) TO WS-BUFFER2.
-           COMPUTE
-           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN - 1
-           END-COMPUTE.
-           MOVE WS-BUFFER2 TO WS-BUFFER.
+           MOVE WS-BUFFER(WS-RESULT2:) TO WS-TEMP-BUFFER.
+           MOVE WS-TEMP-BUFFER TO WS-BUFFER.
 
        COMPUTE-STATUSTEXT-FROM-STATUS.
       * Compute WS-STATUSTEXT from WS-STATUS
@@ -612,9 +643,9 @@
            END-IF.
            IF WS-RESULT > 0
            THEN
-               MOVE SPACES TO WS-BUFFER2
-               MOVE WS-BUFFER(WS-RESULT:) TO WS-BUFFER2
-               MOVE WS-BUFFER2 TO WS-BUFFER
+               MOVE SPACES TO WS-TEMP-BUFFER
+               MOVE WS-BUFFER(WS-RESULT:) TO WS-TEMP-BUFFER
+               MOVE WS-TEMP-BUFFER TO WS-BUFFER
                COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-RESULT
                END-COMPUTE
            END-IF.
