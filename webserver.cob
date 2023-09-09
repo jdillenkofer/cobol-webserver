@@ -48,11 +48,27 @@
        PROCEDURE DIVISION.
 
        MAIN-PROCEDURE.
+           PERFORM SETUP-IGNORE-SIGCHLD.
            PERFORM SETUP-IGNORE-SIGPIPE.
            PERFORM SETUP-SOCKET.
            PERFORM FOREVER
                PERFORM HANDLE-CLIENT
            END-PERFORM.
+
+       SETUP-IGNORE-SIGCHLD.
+      * IGNORE SIGCHLD signal
+           CALL "sigaction"
+           USING BY VALUE 17,
+           BY REFERENCE WS-SIGACTION,
+           BY REFERENCE NULL
+           RETURNING WS-RESULT
+           END-CALL
+           IF WS-RESULT NOT = ZERO
+           THEN
+               DISPLAY "sigaction call failed: ", WS-RESULT
+               END-DISPLAY
+               GOBACK
+           END-IF.
 
        SETUP-IGNORE-SIGPIPE.
       * IGNORE SIGPIPE signal
@@ -121,6 +137,23 @@
                GOBACK
            END-IF.
 
+           CALL "fork"
+           RETURNING WS-RESULT
+           END-CALL.
+           IF WS-RESULT = -1
+           THEN
+               DISPLAY "fork call failed: ", WS-RESULT
+               END-DISPLAY
+               CALL "close"
+               USING BY VALUE WS-CLIENT-SOCKFD
+               RETURNING WS-RESULT
+               END-CALL
+               EXIT PARAGRAPH
+           END-IF.
+           IF WS-RESULT > 0
+               EXIT PARAGRAPH
+           END-IF.
+
       * Read incoming http request
            MOVE SPACES TO WS-BUFFER.
            CALL "read"
@@ -163,7 +196,7 @@
                MOVE 413 TO HTTP-STATUS OF WS-HTTP-RESPONSE
                PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
-               EXIT PARAGRAPH
+               GOBACK
            END-IF.
       * Consumes the last \r\n
            PERFORM READ-HTTP-LINE.
@@ -175,7 +208,7 @@
                MOVE 405 TO HTTP-STATUS OF WS-HTTP-RESPONSE
                PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
-               EXIT PARAGRAPH
+               GOBACK
            END-IF.
 
            IF  PROTOCOL OF WS-HTTP-REQUEST NOT = "HTTP/1.0"
@@ -185,7 +218,7 @@
                MOVE 505 TO HTTP-STATUS OF WS-HTTP-RESPONSE
                PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
-               EXIT PARAGRAPH
+               GOBACK
            END-IF.
 
       * FIXME: This is vulnerable to path traversal
@@ -216,7 +249,7 @@
                MOVE 404 TO HTTP-STATUS OF WS-HTTP-RESPONSE
                PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
-               EXIT PARAGRAPH
+               GOBACK
            END-IF.
  
            MOVE 200 TO HTTP-STATUS OF WS-HTTP-RESPONSE.
@@ -227,6 +260,8 @@
            USING BY VALUE WS-FILEFD
            RETURNING WS-RESULT
            END-CALL.
+
+           GOBACK.
 
        READ-HTTP-LINE.
            MOVE SPACES TO WS-HTTP-LINE.
