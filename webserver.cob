@@ -37,7 +37,7 @@
        01 WS-HTTP-RESPONSE.
            05 HTTP-STATUS PIC 9(3).
            05 HTTP-STATUSTEXT PIC X(32).
-       01 WS-FILEFD PIC 9(4).
+       01 WS-FILEFD PIC S9(4).
        01 WS-FILENAME PIC X(32).
        01 WS-FILESIZE PIC 9(32).
        01 WS-FILESIZE-WITHOUT-LEADING-ZEROS PIC Z(31)9.
@@ -140,9 +140,9 @@
            END-UNSTRING.
 
            MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
+           PERFORM READ-HTTP-LINE
            PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
                    OR HEADERS-LEN = HEADERS-SIZE
-               PERFORM READ-HTTP-LINE
                COMPUTE
                HEADERS-LEN = HEADERS-LEN + 1
                END-COMPUTE
@@ -152,10 +152,11 @@
                INTO HEADER-KEY OF HEADERS(HEADERS-LEN),
                HEADER-VALUE OF HEADERS(HEADERS-LEN)
                END-UNSTRING
+               PERFORM READ-HTTP-LINE
            END-PERFORM.
 
-           IF WS-BUFFER(1:2) NOT = X"0D0A" AND HEADERS-LEN =
-                   HEADERS-SIZE
+           IF WS-BUFFER(1:2) NOT = X"0D0A"
+              AND HEADERS-LEN = HEADERS-SIZE
            THEN
       * We read all headers we could read, but there are still more...
       * Return status code 413 "Payload Too Large"
@@ -164,7 +165,6 @@
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
                EXIT PARAGRAPH
            END-IF.
-
       * Consumes the last \r\n
            PERFORM READ-HTTP-LINE.
 
@@ -205,9 +205,28 @@
            INTO WS-FILENAME
            END-STRING
 
+           CALL "open" 
+           USING BY REFERENCE WS-FILENAME,
+           BY VALUE 0
+           RETURNING WS-FILEFD
+           END-CALL.
+
+           IF WS-FILEFD = -1
+           THEN
+               MOVE 404 TO HTTP-STATUS OF WS-HTTP-RESPONSE
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+               EXIT PARAGRAPH
+           END-IF.
+ 
            MOVE 200 TO HTTP-STATUS OF WS-HTTP-RESPONSE.
            PERFORM COMPUTE-STATUSTEXT-FROM-STATUS.
            PERFORM SEND-FILE-AS-HTTP-RESPONSE.
+
+           CALL "close"
+           USING BY VALUE WS-FILEFD
+           RETURNING WS-RESULT
+           END-CALL.
 
        READ-HTTP-LINE.
            MOVE SPACES TO WS-HTTP-LINE.
@@ -217,13 +236,19 @@
            INTO WS-HTTP-LINE
            COUNT IN WS-HTTP-LINE-LEN
            END-UNSTRING.
-
-           COMPUTE WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 3
-           END-COMPUTE.
+ 
            COMPUTE
-           WS-BUFFER-LEN = WS-BUFFER-LEN - WS-HTTP-LINE-LEN
+           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN + 3
            END-COMPUTE.
+
+           COMPUTE
+           WS-BUFFER-LEN = WS-BUFFER-LEN - WS-HTTP-LINE-LEN + 1
+           END-COMPUTE.
+
            MOVE WS-BUFFER(WS-HTTP-LINE-LEN:) TO WS-BUFFER2.
+           COMPUTE
+           WS-HTTP-LINE-LEN = WS-HTTP-LINE-LEN - 1
+           END-COMPUTE.
            MOVE WS-BUFFER2 TO WS-BUFFER.
 
        COMPUTE-STATUSTEXT-FROM-STATUS.
@@ -477,12 +502,6 @@
            MOVE X"0D0A" TO WS-BUFFER.
            PERFORM WRITE-TO-CLIENT-SOCKET.
 
-           CALL "open" 
-           USING BY REFERENCE WS-FILENAME,
-           BY VALUE 0
-           RETURNING WS-FILEFD
-           END-CALL.
-
            PERFORM COMPUTE-FILE-SIZE.
 
            MOVE WS-FILESIZE TO WS-FILESIZE-WITHOUT-LEADING-ZEROS.
@@ -499,11 +518,6 @@
            PERFORM WRITE-TO-CLIENT-SOCKET.
 
            PERFORM SEND-FILE-TO-CLIENT-SOCKET.
-
-           CALL "close"
-           USING BY VALUE WS-FILEFD
-           RETURNING WS-RESULT
-           END-CALL.
 
            PERFORM CLOSE-CLIENT-SOCKET.
 
