@@ -5,8 +5,8 @@
        WORKING-STORAGE SECTION.
        01 WS-SOCKFD PIC 9(4).
        01 WS-CLIENT-SOCKFD PIC 9(4).
-       01 WS-RESULT PIC S9(32).
-       01 WS-RESULT2 PIC S9(32).
+       01 WS-TEMP PIC S9(32).
+       01 WS-TEMP2 PIC S9(32).
        01 WS-SIGACTION.
            05 SIG-IGN PIC 9(4) BINARY VALUE 256.
        01 WS-SOCKADDR-IN.
@@ -64,11 +64,11 @@
            USING BY VALUE 17,
            BY REFERENCE WS-SIGACTION,
            BY REFERENCE NULL
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL
-           IF WS-RESULT NOT = ZERO
+           IF WS-TEMP NOT = ZERO
            THEN
-               DISPLAY "sigaction call failed: ", WS-RESULT
+               DISPLAY "sigaction call failed: ", WS-TEMP
                END-DISPLAY
                GOBACK
            END-IF.
@@ -79,11 +79,11 @@
            USING BY VALUE 13,
            BY REFERENCE WS-SIGACTION,
            BY REFERENCE NULL
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL
-           IF WS-RESULT NOT = ZERO
+           IF WS-TEMP NOT = ZERO
            THEN
-               DISPLAY "sigaction call failed: ", WS-RESULT
+               DISPLAY "sigaction call failed: ", WS-TEMP
                END-DISPLAY
                GOBACK
            END-IF.
@@ -104,21 +104,21 @@
            USING BY VALUE WS-SOCKFD, 
            BY REFERENCE WS-SOCKADDR-IN,
            BY VALUE WS-ADDRLEN 
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
-           IF WS-RESULT NOT = ZERO
+           IF WS-TEMP NOT = ZERO
            THEN
-               DISPLAY "bind call failed: ", WS-RESULT
+               DISPLAY "bind call failed: ", WS-TEMP
                END-DISPLAY
                GOBACK
            END-IF.
            CALL "listen" 
            USING BY VALUE WS-SOCKFD, 50
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
-           IF WS-RESULT NOT = ZERO
+           IF WS-TEMP NOT = ZERO
            THEN
-               DISPLAY "listen call failed: ", WS-RESULT
+               DISPLAY "listen call failed: ", WS-TEMP
                END-DISPLAY
                GOBACK
            END-IF.
@@ -141,19 +141,19 @@
            END-IF.
 
            CALL "fork"
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
-           IF WS-RESULT = -1
+           IF WS-TEMP = -1
            THEN
-               DISPLAY "fork call failed: ", WS-RESULT
+               DISPLAY "fork call failed: ", WS-TEMP
                END-DISPLAY
                CALL "close"
                USING BY VALUE WS-CLIENT-SOCKFD
-               RETURNING WS-RESULT
+               RETURNING WS-TEMP
                END-CALL
                EXIT PARAGRAPH
            END-IF.
-           IF WS-RESULT > 0
+           IF WS-TEMP > 0
                EXIT PARAGRAPH
            END-IF.
 
@@ -262,7 +262,7 @@
 
            CALL "close"
            USING BY VALUE WS-FILEFD
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
 
            GOBACK.
@@ -275,10 +275,10 @@
 
       *    We need to ensure that the last \r\n\r\n is inside
       *    WS-BUFFER with further reads
-               MOVE ZERO TO WS-RESULT
+               MOVE ZERO TO WS-TEMP
                INSPECT WS-BUFFER(1:WS-BUFFER-LEN)
-               TALLYING WS-RESULT FOR ALL X"0D0A0D0A"
-               IF WS-RESULT = 0 AND WS-BUFFER-LEN NOT = WS-BUFFER-SIZE
+               TALLYING WS-TEMP FOR ALL X"0D0A0D0A"
+               IF WS-TEMP = 0 AND WS-BUFFER-LEN NOT = WS-BUFFER-SIZE
                THEN
                    PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
                END-IF
@@ -297,39 +297,39 @@
            END-PERFORM.
 
        PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS.
-           PERFORM VARYING WS-RESULT FROM 1 BY 1
-           UNTIL WS-RESULT > HEADERS-LEN
-           IF HEADER-KEY OF HEADERS(WS-RESULT) = "Content-Length"
+           PERFORM VARYING WS-TEMP FROM 1 BY 1
+           UNTIL WS-TEMP > HEADERS-LEN
+           IF HEADER-KEY OF HEADERS(WS-TEMP) = "Content-Length"
            THEN
                COMPUTE
                CONTENT-LENGTH = FUNCTION NUMVAL(HEADER-VALUE OF
-               HEADERS(WS-RESULT))
+               HEADERS(WS-TEMP))
                END-COMPUTE
            END-IF
            END-PERFORM.
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
            COMPUTE 
-           WS-RESULT2 = WS-BUFFER-SIZE - WS-BUFFER-LEN
+           WS-TEMP2 = WS-BUFFER-SIZE - WS-BUFFER-LEN
            END-COMPUTE.
 
            MOVE SPACES TO WS-TEMP-BUFFER
            CALL "read"
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-TEMP-BUFFER,
-           BY VALUE WS-RESULT2
-           RETURNING WS-RESULT
+           BY VALUE WS-TEMP2
+           RETURNING WS-TEMP
            END-CALL.
 
            COMPUTE
-           WS-RESULT2 = WS-BUFFER-LEN + 1
+           WS-TEMP2 = WS-BUFFER-LEN + 1
            END-COMPUTE.
 
-           MOVE WS-TEMP-BUFFER(1:WS-RESULT)
-           TO WS-BUFFER(WS-RESULT2:).
+           MOVE WS-TEMP-BUFFER(1:WS-TEMP)
+           TO WS-BUFFER(WS-TEMP2:).
 
            COMPUTE
-           WS-BUFFER-LEN = WS-BUFFER-LEN + WS-RESULT
+           WS-BUFFER-LEN = WS-BUFFER-LEN + WS-TEMP
            END-COMPUTE.
 
        READ-HTTP-LINE.
@@ -351,9 +351,9 @@
 
       * Substring syntax starts with index 1...
            COMPUTE
-           WS-RESULT2 = WS-HTTP-LINE-LEN + 1
+           WS-TEMP2 = WS-HTTP-LINE-LEN + 1
            END-COMPUTE.
-           MOVE WS-BUFFER(WS-RESULT2:) TO WS-TEMP-BUFFER.
+           MOVE WS-BUFFER(WS-TEMP2:) TO WS-TEMP-BUFFER.
            MOVE WS-TEMP-BUFFER TO WS-BUFFER.
 
        COMPUTE-STATUSTEXT-FROM-STATUS.
@@ -635,9 +635,9 @@
 
        SEND-FILE-TO-CLIENT-SOCKET.
            MOVE ZERO TO WS-SENDFILE-OFFSET.
-           MOVE ZERO TO WS-RESULT.
+           MOVE ZERO TO WS-TEMP.
            PERFORM SEND-FILE-TO-CLIENT-SOCKET-LOOP 
-           UNTIL WS-FILESIZE = 0 OR WS-RESULT = -1.
+           UNTIL WS-FILESIZE = 0 OR WS-TEMP = -1.
 
        SEND-FILE-TO-CLIENT-SOCKET-LOOP.
            CALL "sendfile64"
@@ -645,41 +645,41 @@
            BY VALUE WS-FILEFD,
            BY REFERENCE WS-SENDFILE-OFFSET,
            BY VALUE WS-FILESIZE
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
-           IF WS-RESULT = -1
+           IF WS-TEMP = -1
            THEN
-               DISPLAY "sendfile call failed: ", WS-RESULT
+               DISPLAY "sendfile call failed: ", WS-TEMP
                END-DISPLAY
            ELSE
-               COMPUTE WS-FILESIZE = WS-FILESIZE - WS-RESULT
+               COMPUTE WS-FILESIZE = WS-FILESIZE - WS-TEMP
                END-COMPUTE
            END-IF.
 
        WRITE-TO-CLIENT-SOCKET.
            PERFORM COMPUTE-BUFFER-LEN.
-           MOVE ZERO TO WS-RESULT.
+           MOVE ZERO TO WS-TEMP.
            PERFORM WRITE-TO-CLIENT-SOCKET-LOOP 
-           UNTIL WS-BUFFER-LEN = 0 OR WS-RESULT = -1.
+           UNTIL WS-BUFFER-LEN = 0 OR WS-TEMP = -1.
 
        WRITE-TO-CLIENT-SOCKET-LOOP.
            CALL "write" 
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-BUFFER,
            BY VALUE WS-BUFFER-LEN
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
-           IF WS-RESULT = -1
+           IF WS-TEMP = -1
            THEN
-               DISPLAY "write call failed: ", WS-RESULT
+               DISPLAY "write call failed: ", WS-TEMP
                END-DISPLAY
            END-IF.
-           IF WS-RESULT > 0
+           IF WS-TEMP > 0
            THEN
                MOVE SPACES TO WS-TEMP-BUFFER
-               MOVE WS-BUFFER(WS-RESULT:) TO WS-TEMP-BUFFER
+               MOVE WS-BUFFER(WS-TEMP:) TO WS-TEMP-BUFFER
                MOVE WS-TEMP-BUFFER TO WS-BUFFER
-               COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-RESULT
+               COMPUTE WS-BUFFER-LEN = WS-BUFFER-LEN - WS-TEMP
                END-COMPUTE
            END-IF.
 
@@ -692,7 +692,7 @@
 
            CALL "close"
            USING BY VALUE WS-CLIENT-SOCKFD
-           RETURNING WS-RESULT
+           RETURNING WS-TEMP
            END-CALL.
 
        END PROGRAM cobol-webserver.
