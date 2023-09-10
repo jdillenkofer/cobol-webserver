@@ -196,23 +196,9 @@
            PERFORM PARSE-TRANSFER-ENCODING-CHUNKED-FROM-REQUEST-HEADERS.
            IF IS-TRANSFER-ENCODING-CHUNKED = 'N'
            THEN
-               PERFORM PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS
-               COMPUTE
-               REMAINING-CONTENT-LENGTH = CONTENT-LENGTH - WS-BUFFER-LEN
-               END-COMPUTE
-               PERFORM UNTIL REMAINING-CONTENT-LENGTH = 0
-      * We reuse the WS-BUFFER to stream the entire request buffer
-                   MOVE ZERO TO WS-BUFFER-LEN
-                   PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
-                   COMPUTE
-                   REMAINING-CONTENT-LENGTH = 
-                   REMAINING-CONTENT-LENGTH - WS-BUFFER-LEN
-                   END-COMPUTE
-               END-PERFORM
+               PERFORM READ-BODY-USING-CONTENT-LENGTH
            ELSE
-      * TODO: How to handle Transfer-Encoding chunked???
-               DISPLAY "Transfer Encoding chunked not yet implemented!"
-               END-DISPLAY
+               PERFORM READ-BODY-USING-CHUNK-ENCODING
            END-IF.
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
@@ -327,6 +313,25 @@
            END-IF
            END-PERFORM.
 
+       READ-BODY-USING-CONTENT-LENGTH.
+           PERFORM PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS.
+           COMPUTE
+           REMAINING-CONTENT-LENGTH = CONTENT-LENGTH - WS-BUFFER-LEN
+           END-COMPUTE.
+           PERFORM UNTIL REMAINING-CONTENT-LENGTH = 0
+      * We reuse the WS-BUFFER to stream the entire request buffer
+               MOVE ZERO TO WS-BUFFER-LEN
+               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+               COMPUTE
+               REMAINING-CONTENT-LENGTH = 
+               REMAINING-CONTENT-LENGTH - WS-BUFFER-LEN
+               END-COMPUTE
+           END-PERFORM.
+
+       READ-BODY-USING-CHUNK-ENCODING.
+      * TODO: How to handle Transfer-Encoding chunked???
+           DISPLAY "Transfer Encoding chunked not yet implemented!"
+           END-DISPLAY.
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
            COMPUTE 
