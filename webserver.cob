@@ -35,6 +35,7 @@
            05 HEADERS OCCURS 512 TIMES.
                06 HEADER-KEY PIC X(256).
                06 HEADER-VALUE PIC X(256).
+           05 IS-TRANSFER-ENCODING-CHUNKED PIC X value 'N'.
            05 CONTENT-LENGTH PIC 9(8).
            05 REMAINING-CONTENT-LENGTH PIC 9(8).
        01 WS-HTTP-RESPONSE.
@@ -192,20 +193,27 @@
            PERFORM READ-HTTP-LINE.
 
       * Consume remaining body by checking Content-Length header
-      * TODO: How to handle Transfer-Encoding chunked???
-           PERFORM PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS.
-           COMPUTE
-           REMAINING-CONTENT-LENGTH = CONTENT-LENGTH - WS-BUFFER-LEN
-           END-COMPUTE.
-           PERFORM UNTIL REMAINING-CONTENT-LENGTH = 0
-      * We reuse the WS-BUFFER to stream the entire request buffer
-               MOVE ZERO TO WS-BUFFER-LEN
-               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+           PERFORM PARSE-TRANSFER-ENCODING-CHUNKED-FROM-REQUEST-HEADERS.
+           IF IS-TRANSFER-ENCODING-CHUNKED = 'N'
+           THEN
+               PERFORM PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS
                COMPUTE
-               REMAINING-CONTENT-LENGTH = 
-               REMAINING-CONTENT-LENGTH - WS-BUFFER-LEN
+               REMAINING-CONTENT-LENGTH = CONTENT-LENGTH - WS-BUFFER-LEN
                END-COMPUTE
-           END-PERFORM.
+               PERFORM UNTIL REMAINING-CONTENT-LENGTH = 0
+      * We reuse the WS-BUFFER to stream the entire request buffer
+                   MOVE ZERO TO WS-BUFFER-LEN
+                   PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+                   COMPUTE
+                   REMAINING-CONTENT-LENGTH = 
+                   REMAINING-CONTENT-LENGTH - WS-BUFFER-LEN
+                   END-COMPUTE
+               END-PERFORM
+           ELSE
+      * TODO: How to handle Transfer-Encoding chunked???
+               DISPLAY "Transfer Encoding chunked not yet implemented!"
+               END-DISPLAY
+           END-IF.
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
            THEN
@@ -307,6 +315,18 @@
                END-COMPUTE
            END-IF
            END-PERFORM.
+
+       PARSE-TRANSFER-ENCODING-CHUNKED-FROM-REQUEST-HEADERS.
+           MOVE 'N' TO IS-TRANSFER-ENCODING-CHUNKED.
+           PERFORM VARYING WS-TEMP FROM 1 BY 1
+           UNTIL WS-TEMP > HEADERS-LEN
+           IF HEADER-KEY OF HEADERS(WS-TEMP) = "Transfer-Encoding"
+           AND HEADER-VALUE OF HEADERS(WS-TEMP) = "chunked"
+           THEN
+               MOVE 'Y' TO IS-TRANSFER-ENCODING-CHUNKED
+           END-IF
+           END-PERFORM.
+
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
            COMPUTE 
