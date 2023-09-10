@@ -35,6 +35,8 @@
            05 HEADERS OCCURS 512 TIMES.
                06 HEADER-KEY PIC X(256).
                06 HEADER-VALUE PIC X(256).
+           05 CONTENT-LENGTH PIC 9(8).
+           05 REMAINING-CONTENT-LENGTH PIC 9(8).
        01 WS-HTTP-RESPONSE.
            05 HTTP-STATUS PIC 9(3).
            05 HTTP-STATUSTEXT PIC X(32).
@@ -198,8 +200,21 @@
       * Consumes the last \r\n
            PERFORM READ-HTTP-LINE.
 
-      * TODO: Consume body by checking Content-Length header
-      *    PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
+      * Consume remaining body by checking Content-Length header
+      * TODO: How to handle Transfer-Encoding chunked???
+           PERFORM PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS.
+           COMPUTE
+           REMAINING-CONTENT-LENGTH = CONTENT-LENGTH - WS-BUFFER-LEN
+           END-COMPUTE.
+           PERFORM UNTIL REMAINING-CONTENT-LENGTH = 0
+      * We reuse the WS-BUFFER to stream the entire request buffer
+               MOVE ZERO TO WS-BUFFER-LEN
+               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+               COMPUTE
+               REMAINING-CONTENT-LENGTH = 
+               REMAINING-CONTENT-LENGTH - WS-BUFFER-LEN
+               END-COMPUTE
+           END-PERFORM.
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
            THEN
@@ -264,9 +279,10 @@
        PROCESS-HTTP-HEADERS.
            MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
 
-           PERFORM READ-HTTP-LINE
            PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
                    OR HEADERS-LEN = HEADERS-SIZE
+               PERFORM READ-HTTP-LINE
+
                COMPUTE
                HEADERS-LEN = HEADERS-LEN + 1
                END-COMPUTE
@@ -276,7 +292,18 @@
                INTO HEADER-KEY OF HEADERS(HEADERS-LEN),
                HEADER-VALUE OF HEADERS(HEADERS-LEN)
                END-UNSTRING
-               PERFORM READ-HTTP-LINE
+           END-PERFORM.
+
+       PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS.
+           PERFORM VARYING WS-RESULT FROM 1 BY 1
+           UNTIL WS-RESULT > HEADERS-LEN
+           IF HEADER-KEY OF HEADERS(WS-RESULT) = "Content-Length"
+           THEN
+               COMPUTE
+               CONTENT-LENGTH = FUNCTION NUMVAL(HEADER-VALUE OF
+               HEADERS(WS-RESULT))
+               END-COMPUTE
+           END-IF
            END-PERFORM.
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
