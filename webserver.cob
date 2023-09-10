@@ -159,6 +159,7 @@
 
       * Read incoming http request
            MOVE SPACES TO WS-BUFFER.
+           MOVE ZERO TO WS-BUFFER-LEN.
            CALL "read"
            USING BY VALUE WS-CLIENT-SOCKFD,
            BY REFERENCE WS-BUFFER,
@@ -174,16 +175,6 @@
            PATH OF WS-HTTP-REQUEST,
            PROTOCOL OF WS-HTTP-REQUEST
            END-UNSTRING.
-
-      * We need to ensure that the last \r\n\r\n is inside
-      * WS-BUFFER with another read
-           MOVE ZERO TO WS-RESULT.
-           INSPECT WS-BUFFER(1:WS-BUFFER-LEN)
-           TALLYING WS-RESULT FOR ALL X"0D0A0D0A".
-           IF WS-RESULT = 0 AND WS-BUFFER-LEN NOT = WS-BUFFER-SIZE
-           THEN
-               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
-           END-IF.
 
            PERFORM PROCESS-HTTP-HEADERS.
 
@@ -281,6 +272,17 @@
 
            PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
                    OR HEADERS-LEN = HEADERS-SIZE
+
+      *    We need to ensure that the last \r\n\r\n is inside
+      *    WS-BUFFER with further reads
+               MOVE ZERO TO WS-RESULT
+               INSPECT WS-BUFFER(1:WS-BUFFER-LEN)
+               TALLYING WS-RESULT FOR ALL X"0D0A0D0A"
+               IF WS-RESULT = 0 AND WS-BUFFER-LEN NOT = WS-BUFFER-SIZE
+               THEN
+                   PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+               END-IF
+
                PERFORM READ-HTTP-LINE
 
                COMPUTE
