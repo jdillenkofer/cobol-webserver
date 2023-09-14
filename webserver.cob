@@ -7,6 +7,7 @@
        01 WS-CLIENT-SOCKFD PIC 9(4).
        01 WS-TEMP PIC S9(32).
        01 WS-TEMP2 PIC S9(32).
+       01 WS-I PIC 9(32).
        01 WS-SIGACTION.
            05 SIG-IGN PIC 9(4) BINARY VALUE 256.
        01 WS-SOCKADDR-IN.
@@ -41,6 +42,11 @@
        01 WS-HTTP-RESPONSE.
            05 HTTP-STATUS PIC 9(3).
            05 HTTP-STATUSTEXT PIC X(32).
+           05 HEADERS-LEN PIC 9(8).
+           05 HEADERS-SIZE PIC 9(8) VALUE 512.
+           05 HEADERS OCCURS 512 TIMES.
+               06 HEADER-KEY PIC X(256).
+               06 HEADER-VALUE PIC X(256).
        01 WS-FILEFD PIC S9(4).
        01 WS-FILENAME PIC X(32).
        01 WS-FILESIZE PIC 9(32).
@@ -180,7 +186,8 @@
            PERFORM PROCESS-HTTP-HEADERS.
 
            IF WS-BUFFER(1:2) NOT = X"0D0A"
-              AND HEADERS-LEN = HEADERS-SIZE
+              AND HEADERS-LEN OF WS-HTTP-REQUEST = HEADERS-SIZE OF
+              WS-HTTP-REQUEST
            THEN
       * We read all headers we could read, but there are still more...
       * Return status code 413 "Payload Too Large"
@@ -265,7 +272,8 @@
            MOVE ZERO TO HEADERS-LEN OF WS-HTTP-REQUEST.
 
            PERFORM UNTIL WS-BUFFER-LEN = 0 OR WS-BUFFER(1:2) = X"0D0A"
-                   OR HEADERS-LEN = HEADERS-SIZE
+                   OR HEADERS-LEN OF WS-HTTP-REQUEST = HEADERS-SIZE OF
+                   WS-HTTP-REQUEST
 
       *    We need to ensure that the last \r\n\r\n is inside
       *    WS-BUFFER with further reads
@@ -280,24 +288,30 @@
                PERFORM READ-HTTP-LINE
 
                COMPUTE
-               HEADERS-LEN = HEADERS-LEN + 1
+               HEADERS-LEN OF WS-HTTP-REQUEST = HEADERS-LEN OF
+               WS-HTTP-REQUEST + 1
                END-COMPUTE
 
                UNSTRING WS-HTTP-LINE
                DELIMITED BY ": "
-               INTO HEADER-KEY OF HEADERS(HEADERS-LEN),
-               HEADER-VALUE OF HEADERS(HEADERS-LEN)
+               INTO HEADER-KEY 
+               OF HEADERS OF
+               WS-HTTP-REQUEST (HEADERS-LEN OF WS-HTTP-REQUEST),
+               HEADER-VALUE OF HEADERS OF WS-HTTP-REQUEST
+               (HEADERS-LEN OF WS-HTTP-REQUEST)
+
                END-UNSTRING
            END-PERFORM.
 
        PARSE-CONTENT-LENGTH-FROM-REQUEST-HEADERS.
            PERFORM VARYING WS-TEMP FROM 1 BY 1
-           UNTIL WS-TEMP > HEADERS-LEN
-           IF HEADER-KEY OF HEADERS(WS-TEMP) = "Content-Length"
+           UNTIL WS-TEMP > HEADERS-LEN OF WS-HTTP-REQUEST
+           IF HEADER-KEY OF HEADERS OF WS-HTTP-REQUEST (WS-TEMP)
+                   = "Content-Length"
            THEN
                COMPUTE
                CONTENT-LENGTH = FUNCTION NUMVAL(HEADER-VALUE OF
-               HEADERS(WS-TEMP))
+               HEADERS OF WS-HTTP-REQUEST(WS-TEMP))
                END-COMPUTE
            END-IF
            END-PERFORM.
@@ -305,9 +319,11 @@
        PARSE-TRANSFER-ENCODING-CHUNKED-FROM-REQUEST-HEADERS.
            MOVE 'N' TO IS-TRANSFER-ENCODING-CHUNKED.
            PERFORM VARYING WS-TEMP FROM 1 BY 1
-           UNTIL WS-TEMP > HEADERS-LEN
-           IF HEADER-KEY OF HEADERS(WS-TEMP) = "Transfer-Encoding"
-           AND HEADER-VALUE OF HEADERS(WS-TEMP) = "chunked"
+           UNTIL WS-TEMP > HEADERS-LEN OF WS-HTTP-REQUEST
+           IF HEADER-KEY OF HEADERS OF WS-HTTP-REQUEST (WS-TEMP)
+                   = "Transfer-Encoding"
+           AND HEADER-VALUE OF HEADERS OF WS-HTTP-REQUEST (WS-TEMP)
+                   = "chunked"
            THEN
                MOVE 'Y' TO IS-TRANSFER-ENCODING-CHUNKED
            END-IF
@@ -593,7 +609,7 @@
            BY VALUE 0
            END-CALL.
 
-       SEND-STATUSCODE-AS-HTTP-RESPONSE.
+       SEND-HTTP-STATUS-LINE.
            MOVE SPACES TO WS-BUFFER.
            STRING PROTOCOL OF WS-HTTP-REQUEST " "
            HTTP-STATUS OF WS-HTTP-RESPONSE " " DELIMITED BY SIZE
@@ -605,48 +621,65 @@
            MOVE X"0D0A" TO WS-BUFFER.
            PERFORM WRITE-TO-CLIENT-SOCKET.
 
-           MOVE "Content-Length: 0" TO WS-BUFFER.
+       SEND-RESPONSE-HEADERS.
+           PERFORM VARYING WS-I FROM 1 BY 1
+           UNTIL WS-I > HEADERS-LEN OF WS-HTTP-RESPONSE
+               MOVE SPACES TO WS-BUFFER
+               STRING
+               HEADER-KEY OF HEADERS
+               OF WS-HTTP-RESPONSE(WS-I) DELIMITED BY SPACE,
+               ": " DELIMITED BY SIZE,
+               HEADER-VALUE OF HEADERS
+               OF WS-HTTP-RESPONSE(WS-I) DELIMITED BY SPACE
+               INTO WS-BUFFER
+               END-STRING
+               PERFORM WRITE-TO-CLIENT-SOCKET
 
+               MOVE X"0D0A" TO WS-BUFFER
+               PERFORM WRITE-TO-CLIENT-SOCKET
+           END-PERFORM.
+           MOVE X"0D0A" TO WS-BUFFER.
            PERFORM WRITE-TO-CLIENT-SOCKET.
 
-           MOVE X"0D0A0D0A" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
 
+       SEND-STATUSCODE-AS-HTTP-RESPONSE.
+           MOVE 1 TO HEADERS-LEN OF WS-HTTP-RESPONSE.
+           MOVE "Content-Length" TO
+           HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+           MOVE "0" TO
+           HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+
+           PERFORM SEND-HTTP-STATUS-LINE.
+           PERFORM SEND-RESPONSE-HEADERS.
            PERFORM CLOSE-CLIENT-SOCKET.
 
        SEND-FILE-AS-HTTP-RESPONSE.
-           MOVE SPACES TO WS-BUFFER.
-           STRING PROTOCOL OF WS-HTTP-REQUEST " "
-           HTTP-STATUS OF WS-HTTP-RESPONSE " " DELIMITED BY SIZE
-           HTTP-STATUSTEXT OF WS-HTTP-RESPONSE DELIMITED BY SIZE
-           INTO WS-BUFFER
-           END-STRING.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-
-           MOVE X"0D0A" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-
-           MOVE "Content-Type: text/html" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-
-           MOVE X"0D0A" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
+           MOVE 1 TO HEADERS-LEN OF WS-HTTP-RESPONSE.
+           MOVE "Content-Type" TO
+           HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+           MOVE "text/html" TO
+           HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
 
            PERFORM COMPUTE-FILE-SIZE.
 
+           COMPUTE
+           HEADERS-LEN OF WS-HTTP-RESPONSE =
+           HEADERS-LEN OF WS-HTTP-RESPONSE + 1
+           END-COMPUTE.
            MOVE WS-FILESIZE TO WS-FILESIZE-WITHOUT-LEADING-ZEROS.
-           MOVE SPACES TO WS-BUFFER.
-           STRING "Content-Length: " 
-           FUNCTION TRIM(WS-FILESIZE-WITHOUT-LEADING-ZEROS LEADING)
-           DELIMITED BY SIZE
-           INTO WS-BUFFER
-           END-STRING.
+           MOVE "Content-Length" TO
+           HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+           MOVE FUNCTION TRIM(WS-FILESIZE-WITHOUT-LEADING-ZEROS LEADING)
+           TO HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
 
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-           
-           MOVE X"0D0A0D0A" TO WS-BUFFER.
-           PERFORM WRITE-TO-CLIENT-SOCKET.
-
+           PERFORM SEND-HTTP-STATUS-LINE.
+           PERFORM SEND-RESPONSE-HEADERS.
            PERFORM SEND-FILE-TO-CLIENT-SOCKET.
 
            PERFORM CLOSE-CLIENT-SOCKET.
