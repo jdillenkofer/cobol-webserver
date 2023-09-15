@@ -48,9 +48,12 @@
                06 HEADER-KEY PIC X(256).
                06 HEADER-VALUE PIC X(256).
        01 WS-FILEFD PIC S9(4).
-       01 WS-FILENAME PIC X(32).
+       01 WS-FILENAME PIC X(256).
+       01 WS-FILENAME-NULLTERMINATED PIC X(256).
        01 WS-FILESIZE PIC 9(32).
        01 WS-FILESIZE-WITHOUT-LEADING-ZEROS PIC Z(31)9.
+       01 WS-FILESUFFIX PIC X(256).
+       01 WS-CONTENT-TYPE PIC X(256).
        01 WS-BUFFER PIC X(8192).
        01 WS-TEMP-BUFFER PIC X(8192).
        01 WS-BUFFER-LEN PIC 9(8).
@@ -238,13 +241,14 @@
                END-UNSTRING
            END-IF.
 
+           MOVE SPACES TO WS-FILENAME-NULLTERMINATED.
            STRING WS-FILENAME DELIMITED BY SPACE
            X"00" DELIMITED BY SIZE
-           INTO WS-FILENAME
+           INTO WS-FILENAME-NULLTERMINATED
            END-STRING
 
            CALL "open" 
-           USING BY REFERENCE WS-FILENAME,
+           USING BY REFERENCE WS-FILENAME-NULLTERMINATED,
            BY VALUE 0
            RETURNING WS-FILEFD
            END-CALL.
@@ -609,6 +613,67 @@
            BY VALUE 0
            END-CALL.
 
+       COMPUTE-CONTENT-TYPE.
+      * Default value
+           MOVE "application/octet-stream" TO WS-CONTENT-TYPE.
+
+      * Check there is a '.' in the WS-FILENAME
+      * If not we just bail
+           MOVE 0 TO WS-TEMP.
+           INSPECT WS-FILENAME
+           TALLYING WS-TEMP FOR ALL '.'.
+           IF WS-TEMP = 0
+           THEN
+               EXIT PARAGRAPH
+           END-IF.
+
+      * Find the last '.' and try to get the file ending
+           MOVE 0 TO WS-TEMP.
+           INSPECT FUNCTION REVERSE(WS-FILENAME)
+           TALLYING WS-TEMP FOR CHARACTERS AFTER INITIAL '.'.
+           COMPUTE
+           WS-TEMP = WS-TEMP + 1
+           END-COMPUTE.
+           MOVE SPACES TO WS-FILESUFFIX.
+           MOVE WS-FILENAME(WS-TEMP:) TO
+           WS-FILESUFFIX.
+
+           EVALUATE WS-FILESUFFIX
+               WHEN ".html"
+                   MOVE "text/html"
+                   TO WS-CONTENT-TYPE
+               WHEN ".js"
+                   MOVE "text/javascript"
+                   TO WS-CONTENT-TYPE
+               WHEN ".css"
+                   MOVE "text/css"
+                   TO WS-CONTENT-TYPE
+               WHEN ".apng"
+                   MOVE "image/apng"
+                   TO WS-CONTENT-TYPE
+               WHEN ".avif"
+                   MOVE "image/avif"
+                   TO WS-CONTENT-TYPE
+               WHEN ".gif"
+                   MOVE "image/gif"
+                   TO WS-CONTENT-TYPE
+               WHEN ".jpg"
+                   MOVE "image/jpeg"
+                   TO WS-CONTENT-TYPE
+               WHEN ".jpeg"
+                   MOVE "image/jpeg"
+                   TO WS-CONTENT-TYPE
+               WHEN ".png"
+                   MOVE "image/png"
+                   TO WS-CONTENT-TYPE
+               WHEN ".svg"
+                   MOVE "image/svg+xml"
+                   TO WS-CONTENT-TYPE
+               WHEN ".webp"
+                   MOVE "image/webp"
+                   TO WS-CONTENT-TYPE
+           END-EVALUATE.
+
        SEND-HTTP-STATUS-LINE.
            MOVE SPACES TO WS-BUFFER.
            STRING PROTOCOL OF WS-HTTP-REQUEST " "
@@ -669,11 +734,13 @@
            PERFORM CLOSE-CLIENT-SOCKET.
 
        SEND-FILE-AS-HTTP-RESPONSE.
+           PERFORM COMPUTE-CONTENT-TYPE.
+
            MOVE 1 TO HEADERS-LEN OF WS-HTTP-RESPONSE.
            MOVE "Content-Type" TO
            HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
-           MOVE "text/html" TO
+           MOVE WS-CONTENT-TYPE TO
            HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
 
