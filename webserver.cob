@@ -639,6 +639,9 @@
            WS-FILESUFFIX.
 
            EVALUATE WS-FILESUFFIX
+               WHEN ".txt"
+                   MOVE "text/plain"
+                   TO WS-CONTENT-TYPE
                WHEN ".html"
                    MOVE "text/html"
                    TO WS-CONTENT-TYPE
