@@ -27,6 +27,7 @@
        01 WS-HTTP-LINE PIC X(4096).
        01 WS-HTTP-LINE-LEN PIC 9(8).
        01 WS-HTTP-LINE-SIZE PIC 9(8) VALUE 4096.
+       01 WS-HTTP-REQUEST-COUNTER PIC 9(8) VALUE 0.
        01 WS-HTTP-REQUEST.
            05 HTTP-METHOD PIC X(8).
            05 PATH   PIC X(2083).
@@ -150,6 +151,10 @@
                GOBACK
            END-IF.
 
+           COMPUTE
+           WS-HTTP-REQUEST-COUNTER = WS-HTTP-REQUEST-COUNTER + 1
+           END-COMPUTE.
+
            CALL "fork"
            RETURNING WS-TEMP
            END-CALL.
@@ -201,6 +206,17 @@
            END-IF.
       * Consumes the last \r\n
            PERFORM READ-HTTP-LINE.
+
+           DISPLAY ">Method: '",
+           FUNCTION TRIM(HTTP-METHOD OF WS-HTTP-REQUEST TRAILING),
+           "' Path: '",
+           FUNCTION TRIM(PATH OF WS-HTTP-REQUEST TRAILING),
+           "' Protocol: '",
+           FUNCTION TRIM(PROTOCOL OF WS-HTTP-REQUEST TRAILING),
+           "' RequestCounter: '",
+           WS-HTTP-REQUEST-COUNTER,
+           "'"
+           END-DISPLAY.
 
       * Consume remaining body by checking Content-Length header
            PERFORM PARSE-TRANSFER-ENCODING-CHUNKED-FROM-REQUEST-HEADERS.
@@ -731,6 +747,12 @@
            HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
 
+           DISPLAY "<Status: '",
+           HTTP-STATUS OF WS-HTTP-RESPONSE,
+           "' RequestCounter: '",
+           WS-HTTP-REQUEST-COUNTER,
+           "'"
+           END-DISPLAY.
 
            PERFORM SEND-HTTP-STATUS-LINE.
            PERFORM SEND-RESPONSE-HEADERS.
@@ -772,6 +794,16 @@
            MOVE "cobol-webserver" TO
            HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
+
+           DISPLAY "<Status: '",
+           HTTP-STATUS OF WS-HTTP-RESPONSE,
+           "' File: '",
+           FUNCTION TRIM(WS-FILENAME TRAILING),
+           "' RequestCounter: '",
+           WS-HTTP-REQUEST-COUNTER,
+           "'"
+           END-DISPLAY.
+
 
            PERFORM SEND-HTTP-STATUS-LINE.
            PERFORM SEND-RESPONSE-HEADERS.
