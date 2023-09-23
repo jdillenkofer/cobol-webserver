@@ -3,13 +3,21 @@
        DATA DIVISION.
        FILE SECTION.
        WORKING-STORAGE SECTION.
+       01 WS-KEEP-RUNNING PIC X EXTERNAL.
        01 WS-SOCKFD PIC 9(4).
        01 WS-CLIENT-SOCKFD PIC 9(4).
        01 WS-TEMP PIC S9(32).
        01 WS-TEMP2 PIC S9(32).
        01 WS-I PIC 9(32).
-       01 WS-SIGACTION.
+       01 WS-SIGACTION-IGNORE.
            05 SIG-IGN PIC 9(4) BINARY VALUE 256.
+       01 WS-SIGACTION-STRUCT.
+           05 SA-HANDLER USAGE PROGRAM-POINTER.
+           05 SA-SIGACTION USAGE PROGRAM-POINTER.
+           05 SA-MASK    PIC X(128) VALUE ZEROS.
+           05 SA-FLAGS   PIC 9(8) BINARY VALUE ZEROS.
+           05 FILLER PIC X(12) VALUE ZEROS.
+       01 WS-HANDLE-SIGINT-PROCNAME PIC X(20) VALUE "sigint-handler".
        01 WS-SOCKADDR-IN.
       * AF_INET, Port 8080, 0.0.0.0
            05 SIN-FAMILY PIC 9(4) BINARY VALUE 512.
@@ -37,7 +45,7 @@
            05 HEADERS OCCURS 512 TIMES.
                06 HEADER-KEY PIC X(256).
                06 HEADER-VALUE PIC X(256).
-           05 IS-TRANSFER-ENCODING-CHUNKED PIC X value 'N'.
+           05 IS-TRANSFER-ENCODING-CHUNKED PIC X VALUE 'N'.
            05 CONTENT-LENGTH PIC 9(8).
            05 REMAINING-CONTENT-LENGTH PIC 9(8).
        01 WS-HTTP-RESPONSE.
@@ -64,16 +72,20 @@
        MAIN-PROCEDURE.
            PERFORM SETUP-IGNORE-SIGCHLD.
            PERFORM SETUP-IGNORE-SIGPIPE.
+           PERFORM SETUP-HANDLE-SIGINT.
            PERFORM SETUP-SOCKET.
-           PERFORM FOREVER
+           MOVE 'Y' TO WS-KEEP-RUNNING.
+           PERFORM UNTIL WS-KEEP-RUNNING = 'N'
                PERFORM HANDLE-CLIENT
            END-PERFORM.
+           PERFORM CLEANUP-SOCKET.
+           STOP RUN.
 
        SETUP-IGNORE-SIGCHLD.
       * IGNORE SIGCHLD signal
            CALL "sigaction"
            USING BY VALUE 17,
-           BY REFERENCE WS-SIGACTION,
+           BY REFERENCE WS-SIGACTION-IGNORE,
            BY REFERENCE NULL
            RETURNING WS-TEMP
            END-CALL
@@ -88,10 +100,38 @@
       * IGNORE SIGPIPE signal
            CALL "sigaction"
            USING BY VALUE 13,
-           BY REFERENCE WS-SIGACTION,
+           BY REFERENCE WS-SIGACTION-IGNORE,
            BY REFERENCE NULL
            RETURNING WS-TEMP
            END-CALL
+           IF WS-TEMP NOT = ZERO
+           THEN
+               DISPLAY "sigaction call failed: ", WS-TEMP
+               END-DISPLAY
+               GOBACK
+           END-IF.
+
+       SETUP-HANDLE-SIGINT.
+      * Handle SIGINT signal
+           SET SA-HANDLER OF WS-SIGACTION-STRUCT
+           TO ENTRY WS-HANDLE-SIGINT-PROCNAME.
+
+           SET SA-SIGACTION OF WS-SIGACTION-STRUCT
+           TO NULL.
+
+           CALL "sigfillset"
+           USING BY REFERENCE WS-TEMP-BUFFER
+           END-CALL.
+           MOVE WS-TEMP-BUFFER(1:128) TO SA-MASK OF WS-SIGACTION-STRUCT.
+           MOVE ZEROS TO SA-FLAGS OF WS-SIGACTION-STRUCT.
+
+           CALL "sigaction"
+           USING BY VALUE 2,
+           BY REFERENCE WS-SIGACTION-STRUCT,
+           BY REFERENCE NULL
+           RETURNING WS-TEMP
+           END-CALL
+
            IF WS-TEMP NOT = ZERO
            THEN
                DISPLAY "sigaction call failed: ", WS-TEMP
@@ -136,6 +176,12 @@
            DISPLAY "Listening on 0.0.0.0:8080"
            END-DISPLAY.
 
+       CLEANUP-SOCKET.
+           CALL "close"
+           USING BY VALUE WS-SOCKFD
+           RETURNING WS-TEMP
+           END-CALL.
+
        HANDLE-CLIENT.
            MOVE 16 TO WS-CADDRLEN.
            CALL "accept" 
@@ -148,7 +194,12 @@
            THEN
                DISPLAY "accept call failed: ", WS-CLIENT-SOCKFD
                END-DISPLAY
-               GOBACK
+               EXIT PARAGRAPH
+           END-IF.
+
+           IF WS-KEEP-RUNNING = 'N'
+           THEN
+             EXIT PARAGRAPH
            END-IF.
 
            COMPUTE
@@ -367,6 +418,9 @@
        READ-BODY-USING-CHUNK-ENCODING.
       * TODO: How to handle Transfer-Encoding chunked???
            DISPLAY "Transfer Encoding chunked not yet implemented!"
+           END-DISPLAY.
+           PERFORM READ-HTTP-LINE.
+           DISPLAY WS-HTTP-LINE
            END-DISPLAY.
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
@@ -747,6 +801,18 @@
            HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
 
+           COMPUTE
+           HEADERS-LEN OF WS-HTTP-RESPONSE =
+           HEADERS-LEN OF WS-HTTP-RESPONSE + 1
+           END-COMPUTE.
+
+           MOVE "Connection" TO
+           HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+           MOVE "close" TO
+           HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+
            DISPLAY "<Status: '",
            HTTP-STATUS OF WS-HTTP-RESPONSE,
            "' RequestCounter: '",
@@ -793,6 +859,18 @@
            HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
            MOVE "cobol-webserver" TO
+           HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+
+           COMPUTE
+           HEADERS-LEN OF WS-HTTP-RESPONSE =
+           HEADERS-LEN OF WS-HTTP-RESPONSE + 1
+           END-COMPUTE.
+
+           MOVE "Connection" TO
+           HEADER-KEY OF HEADERS OF WS-HTTP-RESPONSE
+           (HEADERS-LEN OF WS-HTTP-RESPONSE).
+           MOVE "close" TO
            HEADER-VALUE OF HEADERS OF WS-HTTP-RESPONSE
            (HEADERS-LEN OF WS-HTTP-RESPONSE).
 
