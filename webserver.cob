@@ -301,11 +301,10 @@
            THEN
                MOVE "index.html" TO WS-FILENAME
            ELSE
-               MOVE SPACES TO WS-FILENAME
-               UNSTRING PATH OF WS-HTTP-REQUEST
-               DELIMITED BY "/"
-               INTO WS-BUFFER, WS-FILENAME
-               END-UNSTRING
+               MOVE
+               FUNCTION TRIM (PATH OF WS-HTTP-REQUEST TRAILING)
+               TO WS-TEMP-BUFFER
+               MOVE WS-TEMP-BUFFER(2:256) TO WS-FILENAME
            END-IF.
 
            MOVE SPACES TO WS-FILENAME-NULLTERMINATED.
