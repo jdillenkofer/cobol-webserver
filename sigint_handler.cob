@@ -1,0 +1,13 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. sigint-handler.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-KEEP-RUNNING PIC X EXTERNAL.
+       PROCEDURE DIVISION.
+
+       DISPLAY "SIGINT received"
+       END-DISPLAY.
+       MOVE 'N' TO WS-KEEP-RUNNING.
+
+       END PROGRAM sigint-handler.

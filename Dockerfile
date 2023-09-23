@@ -9,7 +9,7 @@ WORKDIR /home/app
 
 USER 10000
 
-COPY webserver.cob .
+COPY *.cob .
 COPY Makefile .
 
 RUN make
