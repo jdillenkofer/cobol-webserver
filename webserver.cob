@@ -328,6 +328,25 @@
                GOBACK
            END-IF.
 
+           CALL "is_filepath_subpath_of_cwd"
+           USING BY REFERENCE WS-FILENAME-NULLTERMINATED
+           RETURNING WS-TEMP
+           END-CALL.
+
+           IF WS-TEMP = 0
+           THEN
+               MOVE 404 TO HTTP-STATUS OF WS-HTTP-RESPONSE
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+
+               CALL "close"
+               USING BY VALUE WS-FILEFD
+               RETURNING WS-TEMP
+               END-CALL
+
+               GOBACK
+           END-IF.
+
            CALL "is_directory"
            USING BY VALUE WS-FILEFD
            RETURNING WS-TEMP
