@@ -9,6 +9,7 @@ WORKDIR /home/app
 
 USER 10000
 
+COPY *.c .
 COPY *.cob .
 COPY Makefile .
 

@@ -319,6 +319,7 @@
            RETURNING WS-FILEFD
            END-CALL.
 
+      * If we can't open the file, return 404
            IF WS-FILEFD = -1
            THEN
                MOVE 404 TO HTTP-STATUS OF WS-HTTP-RESPONSE
@@ -326,7 +327,27 @@
                PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
                GOBACK
            END-IF.
- 
+
+           CALL "is_directory"
+           USING BY VALUE WS-FILEFD
+           RETURNING WS-TEMP
+           END-CALL.
+
+      * If the file is a directory, return 404 and close the file
+           IF WS-TEMP NOT = 0
+           THEN
+               MOVE 404 TO HTTP-STATUS OF WS-HTTP-RESPONSE
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+
+               CALL "close"
+               USING BY VALUE WS-FILEFD
+               RETURNING WS-TEMP
+               END-CALL
+
+               GOBACK
+           END-IF.
+
            MOVE 200 TO HTTP-STATUS OF WS-HTTP-RESPONSE.
            PERFORM COMPUTE-STATUSTEXT-FROM-STATUS.
            PERFORM SEND-FILE-AS-HTTP-RESPONSE.
