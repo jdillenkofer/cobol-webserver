@@ -1,4 +1,4 @@
-webserver: webserver.cob sigint_handler.cob file-helper.o
+webserver: webserver.cob sigint_handler.cob sigalrm_handler.cob file-helper.o
 	cobc -Wall -Wextra -fstatic-call -x -O2 -o $@ $^
 
 clean:
