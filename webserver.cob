@@ -9,7 +9,17 @@
        01 WS-CLIENT-SOCKFD PIC 9(4).
        01 WS-TEMP PIC S9(32).
        01 WS-TEMP2 PIC S9(32).
+       01 WS-TEMP3 PIC S9(32).
        01 WS-I PIC 9(32).
+       01 WS-NUM-TRAILING-SPACES PIC 9(20).
+       01 WS-NUM-HEX-DIGITS PIC 9(20).
+       01 WS-TEXT PIC X(16).
+       01 WS-HEX-STRING PIC X(16).
+       01 FILLER PIC 9 VALUE 0.
+       01 WS-NUMERIC-VALUE PIC 9(20).
+       01 WS-HEX-CHAR PIC X.
+       01 WS-HEX-DIGITS CONSTANT "0123456789ABCDEF".
+       01 WS-HEX-VALUE PIC 9(2).
        01 WS-SIGACTION-IGNORE.
            05 SIG-IGN PIC 9(4) BINARY VALUE 256.
        01 WS-SIGACTION-STRUCT.
@@ -50,6 +60,7 @@
                06 HEADER-VALUE PIC X(256).
            05 IS-TRANSFER-ENCODING-CHUNKED PIC X VALUE 'N'.
            05 CONTENT-LENGTH PIC 9(8).
+           05 CHUNK-LENGTH PIC 9(20).
            05 REMAINING-CONTENT-LENGTH PIC 9(8).
        01 WS-HTTP-RESPONSE.
            05 HTTP-STATUS PIC 9(3).
@@ -497,12 +508,95 @@
            END-PERFORM.
 
        READ-BODY-USING-CHUNK-ENCODING.
-      * TODO: How to handle Transfer-Encoding chunked???
-           DISPLAY "Transfer Encoding chunked not yet implemented!"
-           END-DISPLAY.
-           PERFORM READ-HTTP-LINE.
-           DISPLAY WS-HTTP-LINE
-           END-DISPLAY.
+           PERFORM FOREVER
+               PERFORM READ-HTTP-LINE
+
+               MOVE FUNCTION TRIM(WS-HTTP-LINE) TO WS-HEX-STRING
+      * TODO: validate WS-HEX-STRING only contains hex
+               PERFORM CONVERT-HEXSTRING-TO-DECIMAL
+               MOVE WS-NUMERIC-VALUE TO CHUNK-LENGTH
+               IF CHUNK-LENGTH = 0
+               THEN
+                   EXIT PARAGRAPH
+               END-IF
+               PERFORM READ-ENTIRE-CHUNK
+           END-PERFORM.
+
+       READ-ENTIRE-CHUNK.
+      * TODO: consume chunk many bytes from WS-BUFFER
+      * until it is empty or we reached the end of the chunk
+      * consume the \r\n and see if we need to read again...
+           IF CHUNK-LENGTH = 0
+           THEN
+               EXIT PARAGRAPH
+           END-IF.
+
+           COMPUTE
+           CHUNK-LENGTH = CHUNK-LENGTH + 2
+           END-COMPUTE.
+
+           PERFORM UNTIL CHUNK-LENGTH = 0
+               IF WS-BUFFER-LEN < CHUNK-LENGTH
+               THEN
+                   PERFORM
+                   READ-FROM-SOCKET-AND-FILL-WS-BUFFER-WITH-TIMEOUT
+               END-IF
+
+               IF WS-BUFFER-LEN < CHUNK-LENGTH
+                   MOVE WS-BUFFER-LEN TO WS-TEMP3
+               ELSE
+                   MOVE CHUNK-LENGTH TO WS-TEMP3
+               END-IF
+
+               COMPUTE
+               WS-BUFFER-LEN = WS-BUFFER-LEN - WS-TEMP3
+               END-COMPUTE
+
+      *    Substring syntax starts with index 1...
+               COMPUTE
+               WS-TEMP2 = WS-TEMP3 + 1
+               END-COMPUTE
+               MOVE WS-BUFFER(WS-TEMP2:) TO WS-TEMP-BUFFER
+               MOVE WS-TEMP-BUFFER TO WS-BUFFER
+
+               COMPUTE
+               CHUNK-LENGTH = CHUNK-LENGTH - WS-TEMP3
+               END-COMPUTE
+           END-PERFORM.
+
+       CONVERT-HEXSTRING-TO-DECIMAL.
+           MOVE ZERO TO WS-NUM-TRAILING-SPACES.
+           MOVE ZERO TO WS-NUMERIC-VALUE.
+           INSPECT WS-HEX-STRING
+           REPLACING ALL X"0D" BY SPACES.
+           INSPECT WS-HEX-STRING
+           REPLACING ALL X"0A" BY SPACES.
+           INSPECT WS-HEX-STRING
+           TALLYING WS-NUM-TRAILING-SPACES FOR TRAILING SPACES.
+
+           COMPUTE
+           WS-NUM-HEX-DIGITS = 16 - WS-NUM-TRAILING-SPACES
+           END-COMPUTE.
+           COMPUTE
+           WS-NUM-TRAILING-SPACES = WS-NUM-TRAILING-SPACES + 1
+           END-COMPUTE.
+           MOVE ZEROS TO WS-TEXT.
+           MOVE WS-HEX-STRING(1:WS-NUM-HEX-DIGITS)
+           TO WS-TEXT(WS-NUM-TRAILING-SPACES:).
+           MOVE WS-TEXT TO WS-HEX-STRING.
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               MOVE WS-HEX-STRING (WS-I:1) TO WS-HEX-CHAR
+               PERFORM CONVERT-HEX-TO-DECIMAL
+               MULTIPLY 16 BY WS-NUMERIC-VALUE
+               END-MULTIPLY
+               ADD WS-HEX-VALUE TO WS-NUMERIC-VALUE
+               END-ADD
+           END-PERFORM.
+
+       CONVERT-HEX-TO-DECIMAL.
+           MOVE 0 TO WS-HEX-VALUE.
+           INSPECT WS-HEX-DIGITS TALLYING WS-HEX-VALUE
+           FOR CHARACTERS BEFORE FUNCTION Upper-case(WS-HEX-CHAR).
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER-WITH-TIMEOUT.
            PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
