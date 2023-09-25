@@ -4,6 +4,7 @@
        FILE SECTION.
        WORKING-STORAGE SECTION.
        01 WS-KEEP-RUNNING PIC X EXTERNAL.
+       01 WS-ALRM-WAS-RAISED PIC X EXTERNAL.
        01 WS-SOCKFD PIC 9(4).
        01 WS-CLIENT-SOCKFD PIC 9(4).
        01 WS-TEMP PIC S9(32).
@@ -18,6 +19,8 @@
            05 SA-FLAGS   PIC 9(8) BINARY VALUE ZEROS.
            05 FILLER PIC X(12) VALUE ZEROS.
        01 WS-HANDLE-SIGINT-PROCNAME PIC X(20) VALUE "sigint-handler".
+       01 WS-HANDLE-SIGALRM-PROCNAME PIC X(20)
+           VALUE "sigalrm-handler".
        01 WS-SOCKADDR-IN.
       * AF_INET, Port 8080, 0.0.0.0
            05 SIN-FAMILY PIC 9(4) BINARY VALUE 512.
@@ -139,6 +142,33 @@
                GOBACK
            END-IF.
 
+       SETUP-HANDLE-SIGALRM.
+      * Handle SIGALRM signal
+           SET SA-HANDLER OF WS-SIGACTION-STRUCT
+           TO ENTRY WS-HANDLE-SIGALRM-PROCNAME.
+
+           SET SA-SIGACTION OF WS-SIGACTION-STRUCT
+           TO NULL.
+
+           CALL "sigfillset"
+           USING BY REFERENCE WS-TEMP-BUFFER
+           END-CALL.
+           MOVE WS-TEMP-BUFFER(1:128) TO SA-MASK OF WS-SIGACTION-STRUCT.
+           MOVE ZEROS TO SA-FLAGS OF WS-SIGACTION-STRUCT.
+
+           CALL "sigaction"
+           USING BY VALUE 14,
+           BY REFERENCE WS-SIGACTION-STRUCT,
+           BY REFERENCE NULL
+           RETURNING WS-TEMP
+           END-CALL
+
+           IF WS-TEMP NOT = ZERO
+           THEN
+               DISPLAY "sigaction call failed: ", WS-TEMP
+               END-DISPLAY
+               GOBACK
+           END-IF.
        SETUP-SOCKET.
       * AF_INET, SOCK_STREAM, default prot
            CALL "socket" 
@@ -223,10 +253,19 @@
                EXIT PARAGRAPH
            END-IF.
 
+      * We set an alarm for 10 sec in case the
+      * requestor never sends us the entire http request
+           MOVE "N" TO WS-ALRM-WAS-RAISED.
+           PERFORM SETUP-HANDLE-SIGALRM.
+           CALL "alarm"
+           USING BY VALUE 10
+           RETURNING WS-TEMP
+           END-CALL.
+
       * Read incoming http request
            MOVE SPACES TO WS-BUFFER.
            MOVE ZERO TO WS-BUFFER-LEN.
-           PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
+           PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER-WITH-TIMEOUT.
 
            PERFORM READ-HTTP-LINE.
 
@@ -272,6 +311,13 @@
            ELSE
                PERFORM READ-BODY-USING-CHUNK-ENCODING
            END-IF.
+
+      * Now we read the entire request
+      * it is time to disable the alarm
+           CALL "alarm"
+           USING BY VALUE 0
+           RETURNING WS-TEMP
+           END-CALL.
 
            IF HTTP-METHOD OF WS-HTTP-REQUEST NOT = "GET"
            THEN
@@ -387,7 +433,8 @@
                TALLYING WS-TEMP FOR ALL X"0D0A0D0A"
                IF WS-TEMP = 0 AND WS-BUFFER-LEN NOT = WS-BUFFER-SIZE
                THEN
-                   PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+                   PERFORM
+                       READ-FROM-SOCKET-AND-FILL-WS-BUFFER-WITH-TIMEOUT
                END-IF
 
                PERFORM READ-HTTP-LINE
@@ -442,7 +489,7 @@
            PERFORM UNTIL REMAINING-CONTENT-LENGTH = 0
       * We reuse the WS-BUFFER to stream the entire request buffer
                MOVE ZERO TO WS-BUFFER-LEN
-               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER
+               PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER-WITH-TIMEOUT
                COMPUTE
                REMAINING-CONTENT-LENGTH = 
                REMAINING-CONTENT-LENGTH - WS-BUFFER-LEN
@@ -456,6 +503,19 @@
            PERFORM READ-HTTP-LINE.
            DISPLAY WS-HTTP-LINE
            END-DISPLAY.
+
+       READ-FROM-SOCKET-AND-FILL-WS-BUFFER-WITH-TIMEOUT.
+           PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
+
+      * If we get a SIGALRM during reading this is a client read timeout
+      * return Http Status 408 and stop the process
+           IF WS-ALRM-WAS-RAISED = "Y"
+           THEN
+               MOVE 408 TO HTTP-STATUS OF WS-HTTP-RESPONSE
+               PERFORM COMPUTE-STATUSTEXT-FROM-STATUS
+               PERFORM SEND-STATUSCODE-AS-HTTP-RESPONSE
+               GOBACK
+           END-IF.
 
        READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
            COMPUTE 
