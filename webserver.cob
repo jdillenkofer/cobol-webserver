@@ -226,12 +226,7 @@
       * Read incoming http request
            MOVE SPACES TO WS-BUFFER.
            MOVE ZERO TO WS-BUFFER-LEN.
-           CALL "read"
-           USING BY VALUE WS-CLIENT-SOCKFD,
-           BY REFERENCE WS-BUFFER,
-           BY VALUE WS-BUFFER-SIZE
-           RETURNING WS-BUFFER-LEN
-           END-CALL.
+           PERFORM READ-FROM-SOCKET-AND-FILL-WS-BUFFER.
 
            PERFORM READ-HTTP-LINE.
 
