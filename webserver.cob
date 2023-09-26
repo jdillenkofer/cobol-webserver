@@ -523,14 +523,13 @@
            END-PERFORM.
 
        READ-ENTIRE-CHUNK.
-      * TODO: consume chunk many bytes from WS-BUFFER
-      * until it is empty or we reached the end of the chunk
-      * consume the \r\n and see if we need to read again...
+      *  If the chunk is empty just bail
            IF CHUNK-LENGTH = 0
            THEN
                EXIT PARAGRAPH
            END-IF.
 
+      * Include \r\n inside the chunk
            COMPUTE
            CHUNK-LENGTH = CHUNK-LENGTH + 2
            END-COMPUTE.
