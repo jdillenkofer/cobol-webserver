@@ -11,6 +11,7 @@
        01 WS-TEMP2 PIC S9(32).
        01 WS-TEMP3 PIC S9(32).
        01 WS-I PIC 9(32).
+       01 WS-IS-MACOS PIC 9(32).
        01 WS-NUM-TRAILING-SPACES PIC 9(20).
        01 WS-NUM-HEX-DIGITS PIC 9(20).
        01 WS-TEXT PIC X(16).
@@ -84,9 +85,14 @@
        PROCEDURE DIVISION.
 
        MAIN-PROCEDURE.
-           PERFORM SETUP-IGNORE-SIGCHLD.
-           PERFORM SETUP-IGNORE-SIGPIPE.
-           PERFORM SETUP-HANDLE-SIGINT.
+           CALL "is_macos"
+           RETURNING WS-IS-MACOS
+           END-CALL.
+           IF WS-IS-MACOS = ZERO
+               PERFORM SETUP-IGNORE-SIGCHLD
+               PERFORM SETUP-IGNORE-SIGPIPE
+               PERFORM SETUP-HANDLE-SIGINT
+           END-IF.
            PERFORM SETUP-SOCKET.
            MOVE 'Y' TO WS-KEEP-RUNNING.
            PERFORM UNTIL WS-KEEP-RUNNING = 'N'
@@ -264,14 +270,16 @@
                EXIT PARAGRAPH
            END-IF.
 
+           MOVE "N" TO WS-ALRM-WAS-RAISED
+           IF WS-IS-MACOS = ZERO
       * We set an alarm for 10 sec in case the
       * requestor never sends us the entire http request
-           MOVE "N" TO WS-ALRM-WAS-RAISED.
-           PERFORM SETUP-HANDLE-SIGALRM.
-           CALL "alarm"
-           USING BY VALUE 10
-           RETURNING WS-TEMP
-           END-CALL.
+               PERFORM SETUP-HANDLE-SIGALRM
+               CALL "alarm"
+               USING BY VALUE 10
+               RETURNING WS-TEMP
+               END-CALL
+           END-IF.
 
       * Read incoming http request
            MOVE SPACES TO WS-BUFFER.
