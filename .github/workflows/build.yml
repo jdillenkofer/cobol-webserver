@@ -1,0 +1,29 @@
+name: Native build CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install cobc (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install gnucobol
+    - name: Install cobc (MacOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install gnu-cobol
+    - name: Build the program
+      run: make
